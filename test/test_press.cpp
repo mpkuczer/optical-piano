@@ -192,6 +192,20 @@ int main() {
     check(lo < 0.02f, "silent with the key up", buf);
     check(hi > 0.95f, "full at the bottom", buf);
 
+    // THE PROPERTY THAT REMOVES THE AUDIBLE START: at the depth where a
+    // continuous note is triggered, the mapping must already read zero. If
+    // absLo drops below CONT_ON_DEPTH the note begins part-way up and you
+    // hear a step, which is exactly the artefact this pairing removes.
+    pressNoteOn(s); pressSetMode(s, PRESS_ABSOLUTE);
+    float atTrigger = 0.0f;
+    for (int k = 0; k < 200; k++)
+      atTrigger = pressUpdate(s, PRESS_DEFAULT, 0.050f, 0.0f, 1.2f);
+    snprintf(buf, sizeof buf, "trigger depth 0.050 -> pressure %.4f "
+             "(absLo=%.3f)", atTrigger, PRESS_DEFAULT.absLo);
+    check(atTrigger < 0.005f, "silent at the trigger threshold", buf);
+    check(PRESS_DEFAULT.absLo >= 0.050f,
+          "absLo is at or above CONT_ON_DEPTH", buf);
+
     // Nothing may be learned in this mode — no width, ever.
     check(pressRange(s) == 0.0f, "learns nothing, remembers nothing", "");
   }

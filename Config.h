@@ -55,6 +55,20 @@ const float OFF_DEPTH       = 0.20f;
 const float VEL_START_DEPTH = 0.15f;
 const int   RETREAT_HYST    = 15;
 
+// ---- continuous-gesture thresholds ---------------------------------------
+// A struck instrument needs a critical point: the hammer either has been
+// thrown or has not. A continuous one must not have one at all, so these sit
+// just above the resting noise floor rather than at 40% of travel. The note
+// begins essentially the moment the key moves, and is SILENT there because
+// PRESS_DEFAULT.absLo is at or above CONT_ON_DEPTH — the ramp from nothing is
+// then drawn entirely by your finger.
+const float CONT_ON_DEPTH  = 0.050f;
+const float CONT_OFF_DEPTH = 0.030f;   // hysteresis, to stop chattering
+// Only meaningful because the baseline is tracked while the key rests; with a
+// fixed boot-time baseline, thermal drift alone would cross a 5% threshold.
+const float BASELINE_TRACK = 0.0005f;  // ~2 s time constant at 510 Hz
+const float BASELINE_GATE  = 0.030f;   // only track when this close to rest
+
 // ---- guards --------------------------------------------------------------
 const uint32_t OVERSHOOT_WINDOW_US = 60000;
 const uint32_t EXCURSION_MAX_US    = 250000;

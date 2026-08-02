@@ -205,9 +205,63 @@ static void seedUnlearnedKeys() {
       pressSeedFrom(key[r][c].pressure, sw / n);
 }
 
+// ---- continuous gesture --------------------------------------------------
+// A completely separate reading of the same sensor. No strike detection, no
+// velocity, no overshoot logic, no release arming — every one of those exists
+// to answer "has the hammer been thrown?", which is not a question a theremin
+// asks. Position in, sound out.
+static void feedContinuous(int r, int c, uint16_t v, Key &k) {
+  float depth = depthOf(k, v);
+  k.disp_depth = depth;
+
+  if (k.state != 2) {
+    // Track the resting level while the key is up. Photodarlingtons drift
+    // with temperature and room light, and a 5% threshold is far too tight
+    // to survive a fixed boot-time baseline.
+    if (depth < BASELINE_GATE && v < 4095)
+      k.baseline += BASELINE_TRACK * ((float)v - (float)k.baseline);
+
+    if (depth > CONT_ON_DEPTH) {
+      pressNoteOn(k.pressure);
+      pressSetMode(k.pressure, PRESS_ABSOLUTE);
+      // Establish position first so the voice opens at its true level —
+      // which at this depth is zero.
+      k.press = pressUpdate(k.pressure, PRESS_DEFAULT, depth, 0.0f, 1000.0f);
+      synthPressure(r, c, k.press);
+      synthNoteOn(r, c, 64);          // velocity is ignored in this mode
+#if SEND_USB_MIDI
+      usbMIDI.sendNoteOn(MIDI_NOTE[r][c], 64, 1);
+#endif
+      k.note_on = now_us;
+      k.state = 2;
+    }
+    return;
+  }
+
+  float dt_ms = k.have_prev ? (now_us - k.prev_us) * 0.001f : 1.2f;
+  k.press = pressUpdate(k.pressure, PRESS_DEFAULT, depth,
+                        (now_us - k.note_on) * 0.001f, dt_ms);
+  synthPressure(r, c, k.press);
+
+  if (depth < CONT_OFF_DEPTH) {
+    synthNoteOff(r, c, 0.5f);
+#if SEND_USB_MIDI
+    usbMIDI.sendNoteOff(MIDI_NOTE[r][c], 0, 1);
+#endif
+    k.state = 0;
+  }
+}
+
 // ---- per-key state machine ----------------------------------------------
 static void feed(int r, int c, uint16_t v) {
   Key &k = key[r][c];
+
+  if (presetGesture() == GESTURE_CONTINUOUS) {
+    feedContinuous(r, c, v, k);
+    k.prev_v = v; k.prev_us = now_us; k.have_prev = true;
+    return;
+  }
+
   switch (k.state) {
 
     case 0: // ARMED — waiting for a descent to begin

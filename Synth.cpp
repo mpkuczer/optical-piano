@@ -288,6 +288,28 @@ void synthNoteOn(int row, int col, int velocity) {
   voiceOnMs[i]     = millis();
   voiceDecaying[i] = true;
 
+  // Evaluate modulation ONCE, right now, so the oscillator never starts at a
+  // level the modulation is about to contradict. Without this the voice runs
+  // at full amplitude until the next synthUpdate — up to UPDATE_MS plus a
+  // whole scan sweep — and AudioSynthWaveform::amplitude() does not ramp, so
+  // that is a step discontinuity straight into the speaker. Audible as a pop
+  // on the first note out of silence, and masked (not absent) when a reverb
+  // tail happens to be ringing.
+  {
+    ModContext ctx;
+    ctx.velocity = voiceVel[i];
+    ctx.keytrack = voiceKeytrk[i];
+    ctx.ampEnv   = 1.0f;
+    ctx.filtEnv  = 1.0f;
+    ctx.ageMs    = 0.0f;
+    ctx.randomv  = voiceRand[i];
+    ctx.pressure = voicePress[i];
+    ctx.lfoPhase = voiceLfoPh[i];
+    float mod0[NUM_DESTS];
+    modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod0);
+    amp *= clampf(1.0f + mod0[DST_AMP], 0.0f, 2.0f);
+  }
+
   // Waveform and envelope are applied HERE rather than when the preset
   // changes, so switching timbre mid-chord never clicks.
   AudioNoInterrupts();
@@ -304,7 +326,9 @@ void synthNoteOn(int row, int col, int velocity) {
   // A continuous instrument must not have an attack shape of its own: any
   // ramp here is a second, competing amplitude envelope layered under the one
   // your finger is drawing.
-  env[i].attack(cont ? 1.0f : p.a);
+  // 4 ms rather than 1: long enough that the envelope's own opening edge is
+  // below the threshold of a click, short enough to feel instantaneous.
+  env[i].attack(cont ? 4.0f : p.a);
   env[i].hold(0.0f);
   env[i].decay(0.0f);
   env[i].sustain(1.0f);
