@@ -49,6 +49,10 @@ struct Key {
   PressState pressure;    // learned lean width — see Press.h, tested by
                           //   test_press.cpp against real captured traces
   float    disp_depth;    // last depth computed, for the live trace
+  uint16_t disp_raw;      // last raw ADC reading — the same number the
+                          //   isolation snapshot prints, so the two views
+                          //   can be compared directly
+  bool     dead;          // sensor failed health check; ignored entirely
 };
 
 static Key key[5][5];
@@ -70,10 +74,21 @@ static void readColumn(int c, uint16_t out[5]) {
 }
 
 // ---- thresholds ----------------------------------------------------------
+// Saturating subtraction. These are uint16_t, and baseline - fraction*span
+// goes NEGATIVE for any key whose resting level is low — a failed sensor, or
+// simply a dim one. Unsigned wrap then produces a threshold near 65000 that
+// every reading satisfies. Clamping to zero fails the other way: the key
+// never triggers, which is the correct behaviour for a sensor that cannot
+// report a press.
+static uint16_t levelBelow(uint16_t baseline, float frac, uint16_t span) {
+  uint32_t drop = (uint32_t)(frac * (float)span);
+  return (baseline > drop) ? (uint16_t)(baseline - drop) : 0;
+}
+
 static void deriveThresholds(Key &k) {
-  k.on_lv  = k.baseline - (uint16_t)(ON_DEPTH        * k.span);
-  k.off_lv = k.baseline - (uint16_t)(OFF_DEPTH       * k.span);
-  k.vel_lv = k.baseline - (uint16_t)(VEL_START_DEPTH * k.span);
+  k.on_lv  = levelBelow(k.baseline, ON_DEPTH,        k.span);
+  k.off_lv = levelBelow(k.baseline, OFF_DEPTH,       k.span);
+  k.vel_lv = levelBelow(k.baseline, VEL_START_DEPTH, k.span);
 }
 
 static void reportKey(int r, int c) {
@@ -82,6 +97,13 @@ static void reportKey(int r, int c) {
   Serial.print(",C"); Serial.print(c + 1);
   Serial.print(" s"); Serial.print(r * 5 + c + 1);
   Serial.print(") base="); Serial.print(k.baseline);
+  if (k.dead) {
+    Serial.print("  *** DEAD: resting level is below this key's own trigger"
+                 " threshold (");
+    Serial.print((uint16_t)(ON_DEPTH * k.span));
+    Serial.println("). It cannot register a press. Key disabled.");
+    return;
+  }
   Serial.print(" span="); Serial.print(k.span);
   Serial.print(" on<"); Serial.print(k.on_lv);
   Serial.print(" off>"); Serial.println(k.off_lv);
@@ -94,6 +116,27 @@ void scannerBegin() {
     pinMode(COL_PIN[j], OUTPUT);
     digitalWrite(COL_PIN[j], LOW);
   }
+}
+
+// Called at the end of calibration: one obvious line rather than needing the
+// reader to spot a flag among 25 rows.
+static void reportDeadKeys() {
+  int n = 0;
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) if (key[r][c].dead) n++;
+  if (n == 0) { Serial.println("# all 25 sensors healthy"); return; }
+  Serial.print("# WARNING: "); Serial.print(n);
+  Serial.print(n == 1 ? " sensor is" : " sensors are");
+  Serial.print(" dead and disabled:");
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++)
+      if (key[r][c].dead) {
+        Serial.print(" s"); Serial.print(r * 5 + c + 1);
+        Serial.print("("); Serial.print(key[r][c].baseline); Serial.print(")");
+      }
+  Serial.println();
+  Serial.println("# If a whole ROW is listed, the shared sense line is at"
+                 " fault, not the sensors.");
 }
 
 void scannerCalibrate() {
@@ -111,6 +154,8 @@ void scannerCalibrate() {
     for (int c = 0; c < 5; c++) {
       Key &k = key[r][c];
       k.baseline = sum[r][c] / N;
+      // Dead only if the key cannot physically reach its own trigger point.
+      k.dead = (k.baseline <= (uint16_t)(ON_DEPTH * k.span));
       if (k.span == 0) k.span = DEFAULT_SPAN;
       deriveThresholds(k);
       k.state = 0; k.rel_armed = false; k.above_off = false; k.have_prev = false;
@@ -118,6 +163,7 @@ void scannerCalibrate() {
       pressInit(k.pressure);
       reportKey(r, c);
     }
+  reportDeadKeys();
 }
 
 void scannerResetSpans() {
@@ -131,15 +177,115 @@ void scannerResetSpans() {
 
 // ---- diagnostics ---------------------------------------------------------
 void scannerIsolationSnapshot() {
-  Serial.println("# isolation snapshot (one line per column):");
+  Serial.println("# isolation snapshot (one line per column). '!' = dead.");
+  Serial.println("# A whole ROW dead => the shared sense line is at fault;");
+  Serial.println("# a single cell dead => that sensor is at fault.");
   for (int c = 0; c < 5; c++) {
     uint16_t v[5]; readColumn(c, v);
     for (int r = 0; r < 5; r++) {
       Serial.print("s"); Serial.print(r * 5 + c + 1);
-      Serial.print("="); Serial.print(v[r]); Serial.print("  ");
+      Serial.print("="); Serial.print(v[r]);
+      Serial.print(key[r][c].dead ? "! " : "  ");
     }
     Serial.println();
   }
+}
+
+// ---- fault probe ---------------------------------------------------------
+// Separates the fault classes by using the column transistor as the test
+// switch. A sensor can only pull its row down when ITS column is grounded, so
+// anything that pulls low with every column OFF is downstream of the matrix
+// entirely — a short, or a missing pull-up. Anything that pulls low in one
+// column only is the sensor for that cell. Anything low across several
+// columns has a path to ground that bypasses the column transistor.
+void scannerFaultProbe() {
+  Serial.println("# ---- fault probe ----");
+
+  // 1) Everything off. The 10k pull-ups should hold every row near full scale.
+  deselectAll();
+  delayMicroseconds(SETTLE_US * 4);
+  uint16_t idle[5];
+  for (int r = 0; r < 5; r++) idle[r] = analogRead(ADC_PIN[r]);
+
+  Serial.println("# 1) all columns OFF (expect ~4095 on every row):");
+  bool rowFault[5];
+  for (int r = 0; r < 5; r++) {
+    rowFault[r] = idle[r] < STUCK_LOW_COUNTS;
+    Serial.print("#    row "); Serial.print(r + 1);
+    Serial.print(" = ");       Serial.print(idle[r]);
+    Serial.print(" (");        Serial.print(idle[r] * 3.3f / 4095.0f, 3);
+    Serial.print(" V)");
+    if (rowFault[r])
+      Serial.println("   <<< PULLED LOW WITH NO COLUMN SELECTED");
+    else
+      Serial.println("   ok");
+  }
+
+  // 2) One column at a time.
+  uint16_t m[5][5];
+  for (int c = 0; c < 5; c++) {
+    uint16_t v[5]; readColumn(c, v);
+    for (int r = 0; r < 5; r++) m[r][c] = v[r];
+  }
+  Serial.println("# 2) per column (rows down, columns across):");
+  for (int r = 0; r < 5; r++) {
+    Serial.print("#    ");
+    for (int c = 0; c < 5; c++) {
+      Serial.print("s");  Serial.print(r * 5 + c + 1);
+      Serial.print("=");  Serial.print(m[r][c]);
+      Serial.print(m[r][c] < STUCK_LOW_COUNTS ? "! " : "  ");
+    }
+    Serial.println();
+  }
+
+  // 3) Verdict.
+  Serial.println("# 3) verdict:");
+  bool any = false;
+  for (int r = 0; r < 5; r++) {
+    if (rowFault[r]) {
+      Serial.print("#    ROW "); Serial.print(r + 1);
+      Serial.println(" sense line is shorted to ground, or its 10k pull-up is");
+      Serial.println("#      open. All five keys in that row are affected. This");
+      Serial.println("#      is wiring, not a sensor.");
+      any = true;
+      continue;
+    }
+    for (int c = 0; c < 5; c++) {
+      int lowIn = 0;
+      for (int cc = 0; cc < 5; cc++)
+        if (m[r][cc] < STUCK_LOW_COUNTS) lowIn++;
+      if (m[r][c] >= STUCK_LOW_COUNTS) continue;
+      Serial.print("#    s"); Serial.print(r * 5 + c + 1);
+      if (lowIn == 1) {
+        Serial.println(" is low in ITS OWN column only.");
+        Serial.println("#      Check the VOLTAGE. A photodarlington in hard");
+        Serial.println("#      saturation sits around 0.8-1.2 V, and the column");
+        Serial.println("#      NPN adds ~0.1 V on top. So:");
+        Serial.println("#        > 0.7 V  -> sensor saturated (or flooded with");
+        Serial.println("#                    light; shade the rail and re-run)");
+        Serial.println("#        < 0.5 V  -> NOT a semiconductor. Copper, or a");
+        Serial.println("#                    missing pull-up. Reach for a meter.");
+      } else {
+        Serial.println(" is low in SEVERAL columns:");
+        Serial.println("#      it has a path to ground that bypasses the column");
+        Serial.println("#      transistor. Look for a solder bridge between this");
+        Serial.println("#      sensor's emitter and ground.");
+      }
+      any = true;
+    }
+  }
+  // A column entirely low points at its transistor rather than its sensors.
+  for (int c = 0; c < 5; c++) {
+    int n = 0;
+    for (int r = 0; r < 5; r++) if (m[r][c] < STUCK_LOW_COUNTS) n++;
+    if (n == 5) {
+      Serial.print("#    COLUMN "); Serial.print(c + 1);
+      Serial.println(" is low on every row: its NPN is stuck on, or the");
+      Serial.println("#      column return line is shorted to ground.");
+      any = true;
+    }
+  }
+  if (!any) Serial.println("#    no faults found — everything reads sane.");
 }
 
 void scannerSettleProbe() {
@@ -255,6 +401,8 @@ static void feedContinuous(int r, int c, uint16_t v, Key &k) {
 // ---- per-key state machine ----------------------------------------------
 static void feed(int r, int c, uint16_t v) {
   Key &k = key[r][c];
+  k.disp_raw = v;
+  if (k.dead) return;      // a failed sensor must not be allowed to play
 
   if (presetGesture() == GESTURE_CONTINUOUS) {
     feedContinuous(r, c, v, k);
@@ -417,6 +565,12 @@ void scannerPressureReport() {
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const Key &k = key[r][c];
+      if (k.dead) {
+        Serial.print("#  s");  Serial.print(r * 5 + c + 1);
+        Serial.print("\t--\t--\tDEAD, base=");
+        Serial.println(k.baseline);
+        continue;
+      }
       float rng = pressRange(k.pressure);
       Serial.print("#  s");    Serial.print(r * 5 + c + 1);
       Serial.print("\t");     Serial.print(rng, 4);
@@ -518,7 +672,9 @@ void scannerTraceToggle() {
   traceOn = !traceOn;
   if (traceOn) {
     Serial.println("# trace ON — play and lean, sound keeps running");
-    Serial.println("#  key  depth   rest   lean   width  press  mode");
+    Serial.println("#  key\traw\tbase\tdepth\trest\tlean\twidth\tpress\tmode");
+    Serial.println("#  (raw is the same reading the 'i' isolation snapshot"
+                   " shows; depth = (base-raw)/span)");
   } else {
     Serial.println("# trace off");
   }
@@ -545,6 +701,10 @@ static void serviceTrace() {
   float lean = p.haveRest ? (p.noteMax - p.noteRest) : 0.0f;
 
   Serial.print("#  s");  Serial.print(br * 5 + bc + 1);
+  Serial.print("\t");   Serial.print(k.disp_raw);
+  // Printed alongside because the baseline now TRACKS: raw alone cannot be
+  // interpreted without knowing what the key currently rests at.
+  Serial.print("\t");   Serial.print(k.baseline);
   Serial.print("\t");   Serial.print(k.disp_depth, 3);
   Serial.print("\t");   Serial.print(p.haveRest ? p.noteRest : 0.0f, 3);
   Serial.print("\t");   Serial.print(lean, 3);

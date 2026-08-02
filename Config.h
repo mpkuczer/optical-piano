@@ -69,6 +69,26 @@ const float CONT_OFF_DEPTH = 0.030f;   // hysteresis, to stop chattering
 const float BASELINE_TRACK = 0.0005f;  // ~2 s time constant at 510 Hz
 const float BASELINE_GATE  = 0.030f;   // only track when this close to rest
 
+// ---- sensor health -------------------------------------------------------
+// There is exactly ONE condition that disables a key, and it is derived, not
+// guessed: a resting level at or below its own trigger threshold. Such a key
+// can never register a press, and the unsigned threshold arithmetic
+// underflows into a value every reading satisfies — a note that fires
+// instantly and never releases. That is the failure being prevented.
+//
+// There is deliberately NO upper bound. A high resting level is what a
+// well-aligned sensor looks like (healthy ones here read past 4070), and
+// "not responding to light" simply cannot be determined from a key at rest.
+// An earlier version capped this at 4050 and disabled working keys. A dead
+// key should be dead and say so; a live key must never be quietly switched
+// off to make a report look tidy.
+//
+// Marked dead means SILENT and LOUDLY REPORTED — never silently patched over.
+
+// Only used by the fault probe, to mark cells in the grid. 500 counts is
+// ~0.4 V: below anything a semiconductor in this path can produce.
+const uint16_t STUCK_LOW_COUNTS = 500;
+
 // ---- guards --------------------------------------------------------------
 const uint32_t OVERSHOOT_WINDOW_US = 60000;
 const uint32_t EXCURSION_MAX_US    = 250000;

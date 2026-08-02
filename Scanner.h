@@ -14,6 +14,7 @@ void scannerScanOnce();   // one full sweep of all five columns
 
 void scannerIsolationSnapshot();  // print all 25 cells, one row per line
 void scannerSettleProbe();        // print the settling curve of one cell
+void scannerFaultProbe();         // locate shorts, dead sensors, stuck columns
 void scannerTraceToggle();        // live pressure trace WITHOUT muting the
                                   //   instrument — scanning and sound carry on
 void scannerPressureReport();     // learned width for every key

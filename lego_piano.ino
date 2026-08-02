@@ -20,6 +20,7 @@
 //   b     recalibrate (hands off the keys)
 //   r     reset learned spans    a       audio CPU and memory
 //   i     isolation snapshot     s       settle probe
+//   x     fault probe           (find shorts / dead sensors / stuck columns)
 //   t     live pressure trace    (keeps playing — use this one)
 //   m     pressure monitor       (blocking, silent, raw depth only)
 //   w     per-key pressure windows (which keys respond well)
@@ -105,6 +106,7 @@ static void handleCommand(char ch) {
     case 'a': synthReportLoad();                            break;
     case 'i': scannerIsolationSnapshot();                   break;
     case 's': scannerSettleProbe();                         break;
+    case 'x': scannerFaultProbe();                          break;
     case 't': scannerTraceToggle();                         break;
     case 'm': scannerPressureMonitor();                     break;
     case 'w': scannerPressureReport();                      break;
