@@ -52,20 +52,11 @@ const uint32_t EXCURSION_MAX_US    = 250000;
 const uint32_t DESCEND_TIMEOUT_US  = 600000;
 
 // ---- pressure (continuous key depth while held) --------------------------
-// The sensors report POSITION, so a held key can keep controlling the sound —
-// but only over whatever travel remains AFTER the note has fired. That range
-// is a property of your key mechanism, not something we can assume, so each
-// key learns it: a reference depth taken shortly after the strike, and the
-// deepest depth reached while held. Pressure is where you are between them.
-const uint32_t PRESS_REF_US   = 120000;  // settle time before taking the ref
-const float    PRESS_SEED_REF = 0.55f;   // starting guesses, as span fractions
-const float    PRESS_SEED_MAX = 0.80f;
-const float    PRESS_MIN_RANGE = 0.06f;  // below this the key has no usable
-                                         //   travel left; report zero rather
-                                         //   than amplify sensor noise
-const float    PRESS_LEARN    = 0.20f;   // how fast ref/max adapt per note
-// One-pole smoothing on the mapped value. At ~850 Hz, 0.12 is about 10 ms.
-const float    PRESS_SMOOTH   = 0.12f;
+// The tuning now lives in Press.cpp as PRESS_DEFAULT, because it is covered
+// by tests (test_press.cpp) that replay real captured traces. Changing it
+// here would have put the numbers out of reach of those tests.
+
+const float REL_SMOOTH = 0.12f;   // smoothing on the ascent-rate estimate
 
 // ---- release velocity ----------------------------------------------------
 // How fast the key came back up, measured as spans-per-second of ascent.
