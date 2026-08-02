@@ -1,0 +1,869 @@
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Config.h piano/Config.h
+--- a/Config.h	2026-08-02 13:58:57.457732564 +0000
++++ b/Config.h	2026-08-02 18:46:54.329047874 +0000
+@@ -51,6 +51,20 @@
+ const uint32_t EXCURSION_MAX_US    = 250000;
+ const uint32_t DESCEND_TIMEOUT_US  = 600000;
+ 
++// ---- pressure (continuous key depth while held) --------------------------
++// The tuning now lives in Press.cpp as PRESS_DEFAULT, because it is covered
++// by tests (test_press.cpp) that replay real captured traces. Changing it
++// here would have put the numbers out of reach of those tests.
++
++const float REL_SMOOTH = 0.12f;   // smoothing on the ascent-rate estimate
++
++// ---- release velocity ----------------------------------------------------
++// How fast the key came back up, measured as spans-per-second of ascent.
++// Snatching your hand away shortens the release; lifting gently lengthens it.
++const float REL_FAST_SPANS_PER_S = 7.0f;   // this ascent rate reads as 1.0
++const float REL_SCALE_FAST       = 0.35f;  // release time multiplier, fast
++const float REL_SCALE_SLOW       = 1.60f;  // release time multiplier, slow
++
+ // ---- velocity curve ------------------------------------------------------
+ const float VEL_FAST_MS = 3.0f;
+ const float VEL_SLOW_MS = 200.0f;
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/ModMatrix.cpp piano/ModMatrix.cpp
+--- a/ModMatrix.cpp	2026-08-02 13:58:57.458441042 +0000
++++ b/ModMatrix.cpp	2026-08-02 14:01:49.592467182 +0000
+@@ -21,7 +21,8 @@
+   return v < lo ? lo : (v > hi ? hi : v);
+ }
+ 
+-float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed) {
++float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed,
++               float phaseOffset) {
+   if (cfg.rateHz <= 0.0f) return 0.0f;
+   // Strict '<': at exactly delayMs (and at ageMs 0 with no delay) the LFO
+   // must EVALUATE, not return zero. Using '<=' silently discarded the first
+@@ -34,7 +35,10 @@
+              ? clampf((ageMs - cfg.delayMs) / cfg.fadeMs, 0.0f, 1.0f)
+              : 1.0f;
+ 
+-  float phase = t * cfg.rateHz;                      // in cycles
++  // The offset is added in CYCLES, so it shifts the waveform without
++  // changing its rate. Sample-and-hold picks up the offset too, which means
++  // held notes step to new values at different moments rather than together.
++  float phase = t * cfg.rateHz + phaseOffset;        // in cycles
+   float frac  = phase - floorf(phase);               // 0..1 within the cycle
+   float v = 0.0f;
+ 
+@@ -61,11 +65,14 @@
+     case SRC_KEYTRACK: return c.keytrack;
+     case SRC_AMPENV:   return c.ampEnv;
+     case SRC_FILTENV:  return c.filtEnv;
+-    case SRC_LFO1:     return lfoValue(lfo1, c.ageMs, seed);
+-    case SRC_LFO2:     return lfoValue(lfo2, c.ageMs, seed ^ 0x9E3779B9U);
+-    case SRC_LFO1_UNI: return 0.5f * (lfoValue(lfo1, c.ageMs, seed) + 1.0f);
++    case SRC_LFO1:     return lfoValue(lfo1, c.ageMs, seed, c.lfoPhase);
++    case SRC_LFO2:     return lfoValue(lfo2, c.ageMs, seed ^ 0x9E3779B9U,
++                                       c.lfoPhase);
++    case SRC_LFO1_UNI: return 0.5f * (lfoValue(lfo1, c.ageMs, seed,
++                                               c.lfoPhase) + 1.0f);
+     case SRC_RANDOM:   return c.randomv;
+     case SRC_NOTEAGE:  return clampf(c.ageMs / NOTEAGE_FULL_MS, 0.0f, 1.0f);
++    case SRC_PRESSURE: return c.pressure;
+     default:           return 0.0f;
+   }
+ }
+@@ -86,15 +93,18 @@
+   for (int i = 0; i < numRoutes; i++) {
+     uint8_t s = routes[i].source;
+     uint8_t d = routes[i].dest;
++    uint8_t g = routes[i].via;
+     if (s >= NUM_SOURCES || d >= NUM_DESTS) continue;
++    if (g >= NUM_SOURCES) g = SRC_CONST;
+     if (!have[s]) { cache[s] = sourceValue(s, ctx, lfo1, lfo2, seed); have[s] = true; }
+-    out[d] += cache[s] * routes[i].depth;
++    if (!have[g]) { cache[g] = sourceValue(g, ctx, lfo1, lfo2, seed); have[g] = true; }
++    out[d] += cache[s] * cache[g] * routes[i].depth;
+   }
+ }
+ 
+ static const char *SRC_NAMES[NUM_SOURCES] = {
+   "const", "velocity", "keytrack", "ampenv", "filtenv",
+-  "lfo1", "lfo2", "lfo1uni", "random", "noteage"
++  "lfo1", "lfo2", "lfo1uni", "random", "noteage", "pressure"
+ };
+ static const char *DST_NAMES[NUM_DESTS] = {
+   "pitch", "detune", "cutoff", "amp", "pwm", "res", "oscB"
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/ModMatrix.h piano/ModMatrix.h
+--- a/ModMatrix.h	2026-08-02 13:58:57.457836018 +0000
++++ b/ModMatrix.h	2026-08-02 14:01:43.673986216 +0000
+@@ -33,6 +33,11 @@
+   SRC_RANDOM,      // -1..1, fixed for the life of one note. This is how you
+                    //   fake analog drift: every note is slightly different.
+   SRC_NOTEAGE,     // 0..1 ramp over NOTEAGE_FULL_MS since the note started
++  SRC_PRESSURE,    // 0..1, CONTINUOUS key depth beyond the trigger point.
++                   //   Unlike every other source this keeps changing while
++                   //   you hold the key, because the optical sensors report
++                   //   position and not just on/off. Polyphonic: each key
++                   //   has its own value.
+   NUM_SOURCES
+ };
+ 
+@@ -54,6 +59,11 @@
+   uint8_t source;
+   uint8_t dest;
+   float   depth;
++  // Optional second source that SCALES this route. Summing alone can't
++  // express "vibrato that grows as you lean on the key" — that needs a
++  // multiply. Left at SRC_CONST (which is always 1.0) a route behaves
++  // exactly as before, so existing three-field tables are unaffected.
++  uint8_t via;
+ };
+ 
+ // ---- LFO -----------------------------------------------------------------
+@@ -83,6 +93,11 @@
+   float filtEnv;     // 0..1
+   float ageMs;       // since note on
+   float randomv;     // -1..1, drawn once per note
++  float pressure;    // 0..1, updated continuously while the key is held
++  float lfoPhase;    // 0..1 CYCLES of head start for this voice's LFOs.
++                     //   Without it, every note in a chord struck together
++                     //   wobbles in lockstep, which sounds like one machine
++                     //   rather than several players.
+ };
+ 
+ const float NOTEAGE_FULL_MS = 2000.0f;
+@@ -90,7 +105,10 @@
+ // One LFO, evaluated from the note's age. Stateless on purpose: sample-and-
+ // hold is derived by hashing the cycle number rather than being remembered,
+ // so the same inputs always give the same output and tests are reproducible.
+-float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed);
++// phaseOffset is in cycles (0..1) and shifts this voice's LFO relative to
++// other voices. Defaulted so existing tests and callers are unaffected.
++float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed,
++               float phaseOffset = 0.0f);
+ 
+ // Sum every route into out[NUM_DESTS]. Destinations with no routes come back
+ // as zero, which is the neutral value for all of them.
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Presets.cpp piano/Presets.cpp
+--- a/Presets.cpp	2026-08-02 13:58:57.458733236 +0000
++++ b/Presets.cpp	2026-08-02 14:02:10.522440879 +0000
+@@ -23,14 +23,23 @@
+ // Flute: vibrato that fades in, and brightness that follows loudness — as a
+ // note dies away it also darkens, which is what real instruments do.
+ static const ModRoute R_FLUTE[] = {
+-  { SRC_LFO1,     DST_PITCH,   22.0f },
+-  { SRC_AMPENV,   DST_CUTOFF,   6.0f },
++  // Vibrato that BLOOMS under pressure: the LFO is routed through pressure,
++  // so a held key is steady until you lean on it. This is what a flautist
++  // does with breath and it is the reason `via` exists.
++  { SRC_LFO1,     DST_PITCH,   26.0f, SRC_PRESSURE },
++  { SRC_LFO1,     DST_PITCH,    6.0f },   // a little always present
++  { SRC_PRESSURE, DST_CUTOFF,   7.0f },   // lean in and it opens up
+   { SRC_VELOCITY, DST_CUTOFF,   5.0f },
+ };
+ 
+-// Theremin: deep immediate vibrato, nothing else.
++// Theremin: the player's other hand controls VOLUME, continuously. Pressure
++// is that hand. SRC_CONST pulls the floor down so pressure has room to push
++// back up: 0.45 gain at rest, 1.0 fully depressed.
+ static const ModRoute R_THEREMIN[] = {
+-  { SRC_LFO1, DST_PITCH, 45.0f },
++  { SRC_LFO1,     DST_PITCH,  45.0f },
++  { SRC_CONST,    DST_AMP,    -0.55f },
++  { SRC_PRESSURE, DST_AMP,     0.55f },
++  { SRC_PRESSURE, DST_CUTOFF,  4.0f  },
+ };
+ 
+ // Airy: vibrato plus a slow wobble in the second oscillator's level, so the
+@@ -58,8 +67,9 @@
+ // Oberheim-ish: wide velocity brightness, slow vibrato well after onset.
+ static const ModRoute R_OBIE[] = {
+   { SRC_VELOCITY, DST_CUTOFF, 16.0f },
+-  { SRC_LFO1,     DST_PITCH,  12.0f },
++  { SRC_LFO1,     DST_PITCH,  12.0f, SRC_PRESSURE },
+   { SRC_RANDOM,   DST_DETUNE,  4.0f },
++  { SRC_PRESSURE, DST_CUTOFF, 12.0f },
+ };
+ 
+ // Percussive: hard hits much brighter, brightness tracking the envelope.
+@@ -70,7 +80,9 @@
+ 
+ // Pulse-width motion, the Oberheim shimmer.
+ static const ModRoute R_SHIMMER[] = {
+-  { SRC_LFO2,     DST_PWM,     0.38f },
++  { SRC_LFO2,     DST_PWM,     0.30f },
++  { SRC_LFO2,     DST_PWM,     0.18f, SRC_PRESSURE },
++  { SRC_PRESSURE, DST_OSCB,    0.25f },
+   { SRC_VELOCITY, DST_CUTOFF,  6.0f  },
+ };
+ 
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Press.cpp piano/Press.cpp
+--- a/Press.cpp	1970-01-01 00:00:00.000000000 +0000
++++ b/Press.cpp	2026-08-02 18:46:19.660509541 +0000
+@@ -0,0 +1,94 @@
++// ============================================================================
++// Press.cpp — see Press.h for why this is a separate, Arduino-free file
++// ============================================================================
++#include "Press.h"
++
++// heldBand 0.10 of span is about 270 counts here: comfortably wider than any
++// lean observed (0.03–0.06), and far narrower than the ~1.2 of full travel,
++// so strike and release both fall outside it.
++const PressConfig PRESS_DEFAULT = {
++  /* settleMs  */ 60.0f,
++  /* heldBand  */ 0.10f,
++  /* minRange  */ 0.015f,
++  /* stillRate */ 0.25f,
++  /* velTauMs  */ 30.0f,
++  /* tauMs     */ 20.0f,
++  /* openRate  */ 0.35f,
++  /* closeRate */ 0.04f
++};
++
++static const float NO_MIN = 9.0f;
++
++static float clampf(float v, float lo, float hi) {
++  return v < lo ? lo : (v > hi ? hi : v);
++}
++
++void pressInit(PressState &s) {
++  s.ref = 0.0f; s.top = 0.0f; s.learned = false;
++  s.noteMin = NO_MIN; s.noteMax = 0.0f; s.value = 0.0f;
++  s.vel = 0.0f; s.lastDepth = 0.0f; s.haveLast = false;
++}
++
++void pressNoteOn(PressState &s) {
++  s.noteMin = NO_MIN; s.noteMax = 0.0f; s.value = 0.0f;
++  s.vel = 0.0f; s.lastDepth = 0.0f; s.haveLast = false;
++}
++
++float pressRange(const PressState &s) {
++  return s.learned ? (s.top - s.ref) : 0.0f;
++}
++
++float pressUpdate(PressState &s, const PressConfig &c,
++                  float depth, float ageMs, float dtMs) {
++  // --- map, using whatever window we learned on previous notes -------------
++  float range  = pressRange(s);
++  float target = (range >= c.minRange)
++               ? clampf((depth - s.ref) / range, 0.0f, 1.0f)
++               : 0.0f;
++  // Time-based one-pole, so the response is identical whether we are
++  // called every 1.2 ms or every 60 ms.
++  float alpha = (c.tauMs > 0.0f) ? dtMs / (c.tauMs + dtMs) : 1.0f;
++  s.value += clampf(alpha, 0.0f, 1.0f) * (target - s.value);
++
++  // --- learn this note's held window ---------------------------------------
++  // --- velocity, so we can tell moving from resting ------------------------
++  if (s.haveLast && dtMs > 0.0f) {
++    float inst = (depth - s.lastDepth) * 1000.0f / dtMs;
++    float av   = dtMs / (c.velTauMs + dtMs);
++    s.vel += av * (inst - s.vel);
++  }
++  s.lastDepth = depth;
++  s.haveLast  = true;
++
++  if (ageMs >= c.settleMs) {
++    if (depth > s.noteMax) {
++      s.noteMax = depth;
++      // The deepest point moved far enough that any earlier minimum belonged
++      // to the approach, not the hold. Discard it outright.
++      if (s.noteMin < s.noteMax - c.heldBand) s.noteMin = NO_MIN;
++    }
++    // Record a minimum only while the key is stationary AND near the bottom.
++    // Requiring stillness is what excludes the descent; requiring the band
++    // is what excludes the release.
++    bool still = s.vel < c.stillRate && s.vel > -c.stillRate;
++    if (still && depth > s.noteMax - c.heldBand && depth < s.noteMin)
++      s.noteMin = depth;
++  }
++  return s.value;
++}
++
++void pressNoteOff(PressState &s, const PressConfig &c) {
++  if (s.noteMax > 0.0f && s.noteMin < NO_MIN) {
++    if (!s.learned) {
++      // No seed guess survives contact with real hardware — two attempts
++      // proved that — so the first note sets the window outright.
++      s.ref = s.noteMin; s.top = s.noteMax; s.learned = true;
++    } else {
++      s.ref += (s.noteMin < s.ref ? c.openRate : c.closeRate)
++               * (s.noteMin - s.ref);
++      s.top += (s.noteMax > s.top ? c.openRate : c.closeRate)
++               * (s.noteMax - s.top);
++    }
++  }
++  s.value = 0.0f;
++}
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Press.h piano/Press.h
+--- a/Press.h	1970-01-01 00:00:00.000000000 +0000
++++ b/Press.h	2026-08-02 18:46:19.660360813 +0000
+@@ -0,0 +1,76 @@
++// ============================================================================
++// Press.h — turning key depth into 0..1 pressure
++// ============================================================================
++// Split out of Scanner.cpp for one reason: it can be tested. Pressure has now
++// been wrong three times, and every failure was a unit/range error that a
++// desktop assertion would have caught in a second — the same lesson
++// ModMatrix.h records. Like ModMatrix, this file has NO Arduino dependencies
++// and compiles with plain g++.
++//
++// THE PROBLEM
++//   Depth is a fraction of the key's learned span. A key at rest reads ~0,
++//   fully pressed reads ~1.0 (sometimes above, since span is the average
++//   press and not the mechanical stop). Pressure is not that number. Pressure
++//   is where you sit inside the SMALL region the key still travels after it
++//   has already bottomed out — measured at ~0.03 to 0.06 of span on this
++//   instrument, i.e. under 200 ADC counts out of 4096.
++//
++//   So the window has to be learned per key, and learning it means answering
++//   one question correctly: which samples belong to the hold, and which
++//   belong to the strike or the release? Getting that wrong doesn't produce
++//   a subtly poor result. It produces a window covering the whole travel, and
++//   pressure that never moves more than a few percent while you lean.
++//
++// THE RULE
++//   A sample counts toward the held window only if it is within HELD_BAND of
++//   the deepest point reached so far. When the maximum grows, any minimum
++//   that has fallen outside the band is discarded. That single rule excludes
++//   the strike ramp (the max keeps growing, so stale minima keep being
++//   dropped) and the release ramp (depth falls outside the band, so it is
++//   never recorded) without needing to know which phase we are in.
++// ============================================================================
++#pragma once
++
++struct PressConfig {
++  float settleMs;   // ignore everything this soon after the strike
++  float heldBand;   // how far below the deepest point still counts as "held"
++  float minRange;   // learned windows narrower than this report zero, rather
++                    //   than amplifying ADC noise into imaginary expression
++  float stillRate;  // depth units per SECOND below which the key counts as
++                    //   stationary. The hold is defined by the key having
++                    //   stopped, not by how deep it is: at a 1.2 ms scan rate
++                    //   the approach is a smooth ramp, and depth alone cannot
++                    //   tell "descending through 1.20" from "resting at 1.20".
++  float velTauMs;   // smoothing on the velocity estimate
++  float tauMs;      // output smoothing time constant. NOT a per-sample
++                    //   coefficient: the scan rate varies with build options,
++                    //   and a per-sample coefficient silently changes the feel
++                    //   when it does.
++  float openRate;   // learning rate when the window WIDENS
++  float closeRate;  // ...and when it narrows. Deliberately much slower, so a
++                    //   few notes played without leaning don't erase it.
++};
++
++extern const PressConfig PRESS_DEFAULT;
++
++struct PressState {
++  float ref, top;    // learned held window
++  bool  learned;
++  float noteMin, noteMax;
++  float vel;         // depth units per second, smoothed
++  float lastDepth;
++  bool  haveLast;
++  float value;       // smoothed 0..1 output
++};
++
++void  pressInit(PressState &s);
++void  pressNoteOn(PressState &s);
++
++// Feed one depth sample. ageMs is time since note on. Returns 0..1 pressure.
++float pressUpdate(PressState &s, const PressConfig &c,
++                  float depth, float ageMs, float dtMs);
++
++// Fold this note's observed window into the learned one.
++void  pressNoteOff(PressState &s, const PressConfig &c);
++
++float pressRange(const PressState &s);
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Scanner.cpp piano/Scanner.cpp
+--- a/Scanner.cpp	2026-08-02 13:58:57.458799789 +0000
++++ b/Scanner.cpp	2026-08-02 18:46:54.302165625 +0000
+@@ -24,6 +24,7 @@
+ // ============================================================================
+ #include <Arduino.h>
+ #include "Config.h"
++#include "Press.h"
+ #include "Scanner.h"
+ #include "Synth.h"
+ 
+@@ -42,6 +43,10 @@
+   uint16_t prev_v;
+   uint32_t prev_us;
+   bool     have_prev;
++  float    press;         // 0..1 mapped, smoothed
++  float    rise_spans_s;  // smoothed upward speed, spans per second
++  PressState pressure;    // learned held window — see Press.h, tested by
++                          //   test_press.cpp against real captured traces
+ };
+ 
+ static Key key[5][5];
+@@ -107,6 +112,8 @@
+       if (k.span == 0) k.span = DEFAULT_SPAN;
+       deriveThresholds(k);
+       k.state = 0; k.rel_armed = false; k.above_off = false; k.have_prev = false;
++      k.press = 0.0f; k.rise_spans_s = 0.0f;
++      pressInit(k.pressure);
+       reportKey(r, c);
+     }
+ }
+@@ -157,6 +164,16 @@
+   return v;
+ }
+ 
++static float clampf(float v, float lo, float hi) {
++  return v < lo ? lo : (v > hi ? hi : v);
++}
++
++// Raw ADC level -> depth as a fraction of this key's learned span.
++static float depthOf(const Key &k, uint16_t v) {
++  if (v >= k.baseline || k.span == 0) return 0.0f;
++  return (float)(k.baseline - v) / (float)k.span;
++}
++
+ // Where between the previous sample and this one did the signal cross `th`?
+ // Without this the timing resolution would be the sweep period (~1 ms), which
+ // is far too coarse to tell a soft press from a hard one.
+@@ -210,14 +227,35 @@
+ #endif
+         k.note_on = now_us;
+         k.rel_armed = false; k.above_off = false;
++        pressNoteOn(k.pressure);
+         k.state = 2;
+       } else if (v > k.vel_lv + RETREAT_HYST) {
+         k.state = 0;      // half-press, withdrawn
+       }
+       break;
+ 
+-    case 2: // SOUNDING — wait for a genuine release
++    case 2: // SOUNDING — report pressure, wait for a genuine release
+       if (v < k.note_low) k.note_low = v;
++
++      // The key is still under a finger and we still have a position
++      // reading, so keep feeding it to the voice. This is the whole point of
++      // an optical keybed: a MIDI keyboard would have thrown this away.
++      {
++        float dt_ms  = k.have_prev ? (now_us - k.prev_us) * 0.001f : 1.2f;
++        float age_ms = (now_us - k.note_on) * 0.001f;
++        k.press = pressUpdate(k.pressure, PRESS_DEFAULT,
++                              depthOf(k, v), age_ms, dt_ms);
++        synthPressure(r, c, k.press);
++      }
++
++      // Smoothed upward speed, for release velocity. Only ascents count;
++      // pressing further down must not read as a fast release.
++      if (k.have_prev && now_us > k.prev_us && v > k.prev_v && k.span) {
++        float spans_s = ((float)(v - k.prev_v) / (float)(now_us - k.prev_us))
++                        * 1000000.0f / (float)k.span;
++        k.rise_spans_s += REL_SMOOTH * (spans_s - k.rise_spans_s);
++      }
++
+       if (!k.above_off && v > k.off_lv) { k.above_off = true; k.rose = now_us; }
+       else if (k.above_off && v <= k.off_lv) {
+         k.above_off = false;
+@@ -231,19 +269,28 @@
+       if (k.above_off) {
+         bool off = k.rel_armed || (now_us - k.rose) > EXCURSION_MAX_US;
+         if (off) {
+-          synthNoteOff(r, c);
++          float relv = clampf(k.rise_spans_s / REL_FAST_SPANS_PER_S,
++                              0.0f, 1.0f);
++          synthNoteOff(r, c, relv);
+ #if SEND_USB_MIDI
+-          usbMIDI.sendNoteOff(MIDI_NOTE[r][c], 0, 1);
++          usbMIDI.sendNoteOff(MIDI_NOTE[r][c], (int)(relv * 127.0f), 1);
+ #endif
+ #if VERBOSE
+           Serial.print("s"); Serial.print(r * 5 + c + 1);
+           Serial.println(" OFF");
+ #endif
+-          // Learn this key's real travel so its thresholds fit it better.
++          // Learn this key's travel. Note the EMA: the old version only ever
++          // GREW span, so one bottomed-out press permanently deepened every
++          // threshold on that key — making it harder to trigger and quieter
++          // the harder you played it.
+           if (k.note_low < k.baseline) {
+             uint16_t obs = k.baseline - k.note_low;
+-            if (obs > k.span + 50) { k.span = obs; deriveThresholds(k); }
++            k.span = (uint16_t)(0.9f * k.span + 0.1f * obs);
++            deriveThresholds(k);
+           }
++          pressNoteOff(k.pressure, PRESS_DEFAULT);
++          k.press = 0.0f;
++          k.rise_spans_s = 0.0f;
+           k.state = 0;
+         }
+       }
+@@ -254,6 +301,84 @@
+   k.have_prev = true;
+ }
+ 
++// Live view of one key's depth while you hold it. This is the only way to
++// find out whether your key mechanism HAS any travel left after the note
++// fires — no amount of firmware can invent range that the hardware doesn't
++// produce. Hold a key down and lean on it; watch whether depth moves.
++void scannerPressureMonitor() {
++  Serial.println("# pressure monitor. Hold ONE key down and lean on it.");
++  Serial.println("# Watch 'depth'. If it does not move when you lean, the key");
++  Serial.println("# has bottomed out and pressure is a hardware problem.");
++  Serial.println("# Send any character to stop.");
++  Serial.println("#  key\tbase\tspan\tdepth\thMin\thMax\trange\tref\tmax\tpress");
++
++  float dmin[5][5], dmax[5][5];
++  uint32_t downSince[5][5];
++  for (int r = 0; r < 5; r++)
++    for (int c = 0; c < 5; c++) {
++      dmin[r][c] = 9.0f; dmax[r][c] = 0.0f; downSince[r][c] = 0;
++    }
++
++  uint32_t nextPrint = 0;
++  while (!Serial.available()) {
++    int br = -1, bc = -1;
++    float bd = 0.10f;                 // ignore keys that are basically at rest
++    for (int c = 0; c < 5; c++) {
++      uint16_t v[5]; readColumn(c, v);
++      uint32_t nowms = millis();
++      for (int r = 0; r < 5; r++) {
++        float d = depthOf(key[r][c], v[r]);
++        if (d < 0.60f) { downSince[r][c] = 0; }
++        else {
++          if (downSince[r][c] == 0) downSince[r][c] = nowms;
++          // Only count depth once the key has been down and still for a
++          // moment. Including the strike is what made the earlier range
++          // reading 1.100 — that was the whole travel, not the held part.
++          else if (nowms - downSince[r][c] > (uint32_t)PRESS_DEFAULT.settleMs) {
++            if (d < dmin[r][c]) dmin[r][c] = d;
++            if (d > dmax[r][c]) dmax[r][c] = d;
++          }
++        }
++        if (d > bd) { bd = d; br = r; bc = c; }
++      }
++    }
++    if (br < 0 || millis() < nextPrint) continue;
++    nextPrint = millis() + 60;
++
++    Key &k = key[br][bc];
++    float lo = dmin[br][bc], hi = dmax[br][bc];
++    float range = (lo < 9.0f) ? hi - lo : 0.0f;
++    Serial.print("#  s");   Serial.print(br * 5 + bc + 1);
++    Serial.print("\t");     Serial.print(k.baseline);
++    Serial.print("\t");     Serial.print(k.span);
++    Serial.print("\t");     Serial.print(bd, 3);
++    Serial.print("\t");     Serial.print(lo < 9.0f ? lo : 0.0f, 3);
++    Serial.print("\t");     Serial.print(hi, 3);
++    Serial.print("\t");     Serial.print(range, 3);
++    Serial.print("\t");     Serial.print(k.pressure.ref, 3);
++    Serial.print("\t");     Serial.print(k.pressure.top, 3);
++    Serial.print("\t");     Serial.print(pressRange(k.pressure), 3);
++    Serial.print("  ");
++    // Crude bar so the motion is visible without reading numbers.
++    int bars = (int)(bd * 40.0f);
++    for (int i = 0; i < bars && i < 50; i++) Serial.print('#');
++    Serial.println();
++  }
++  while (Serial.available()) Serial.read();
++
++  Serial.println("# --- summary: observed depth range per key while held ---");
++  for (int r = 0; r < 5; r++)
++    for (int c = 0; c < 5; c++)
++      if (dmax[r][c] > 0.0f) {
++        float lo = dmin[r][c] < 9.0f ? dmin[r][c] : dmax[r][c];
++        float range = dmax[r][c] - lo;
++        Serial.print("#   s"); Serial.print(r * 5 + c + 1);
++        Serial.print("  range="); Serial.print(range, 3);
++        Serial.println(range < PRESS_DEFAULT.minRange
++                       ? "  <-- NO usable pressure travel" : "  ok");
++      }
++}
++
+ // ---- one sweep -----------------------------------------------------------
+ void scannerScanOnce() {
+   for (int c = 0; c < SWEEP_COLS; c++) {
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Scanner.h piano/Scanner.h
+--- a/Scanner.h	2026-08-02 13:58:57.458123142 +0000
++++ b/Scanner.h	2026-08-02 14:13:38.594570520 +0000
+@@ -14,3 +14,5 @@
+ 
+ void scannerIsolationSnapshot();  // print all 25 cells, one row per line
+ void scannerSettleProbe();        // print the settling curve of one cell
++void scannerPressureMonitor();    // live depth of a held key — is there any
++                                  //   travel left after the note fires?
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Synth.cpp piano/Synth.cpp
+--- a/Synth.cpp	2026-08-02 13:58:57.458905598 +0000
++++ b/Synth.cpp	2026-08-02 14:01:23.851020493 +0000
+@@ -83,6 +83,11 @@
+ static float    voiceRand[NUM_VOICES];  // -1..1, drawn once per note
+ static uint32_t voiceSeed[NUM_VOICES];  // sample-and-hold seed
+ static float    voiceResBase[NUM_VOICES];
++static float    voicePress[NUM_VOICES];   // 0..1, updated while key is held
++static float    voiceLfoPh[NUM_VOICES];   // 0..1 cycles of LFO head start
++static float    voiceRelease[NUM_VOICES]; // ms, after release-velocity scaling
++static bool     voiceReleased[NUM_VOICES];
++static uint32_t voiceOffMs[NUM_VOICES];
+ static uint32_t rngState = 0x12345678;
+ 
+ // Cheap deterministic RNG. Per-note randomness is how analog drift is faked:
+@@ -209,6 +214,9 @@
+     vfilt[i].frequency(FILT_MAX_HZ);
+ 
+     voiceDecaying[i] = false;
++    voicePress[i]    = 0.0f;
++    voiceReleased[i] = false;
++    voiceRelease[i]  = PRESET[0].r;
+   }
+   for (int m = 0; m < 7; m++)
+     for (int ch = 0; ch < 4; ch++) mix1[m].gain(ch, MIX1_GAIN);
+@@ -255,6 +263,13 @@
+   voiceRand[i]     = nextRandomBipolar();
+   voiceSeed[i]     = rngState;
+   voiceResBase[i]  = p.res;
++  voicePress[i]    = 0.0f;
++  voiceReleased[i] = false;
++  voiceRelease[i]  = p.r;
++  // Golden-ratio stride: 25 voices spread almost perfectly evenly around the
++  // cycle, and neighbouring keys never land close together. A chord played
++  // dead flat still shimmers because each note's LFO sits somewhere else.
++  voiceLfoPh[i]    = fmodf(i * 0.6180339887f, 1.0f);
+   voiceTau[i]      = p.tau * (TAU_VEL_MIN + (TAU_VEL_MAX - TAU_VEL_MIN) * v);
+   voiceCutPeak[i]  = peak;
+   voiceCutBase[i]  = base;
+@@ -284,8 +299,22 @@
+   AudioInterrupts();
+ }
+ 
+-void synthNoteOff(int row, int col) {
+-  env[row * 5 + col].noteOff();
++void synthNoteOff(int row, int col, float releaseVel) {
++  int i = row * 5 + col;
++  // Fast lift -> short release, slow lift -> long. The preset's r is the
++  // midpoint, not the maximum, so both directions are available.
++  float s = REL_SCALE_SLOW +
++            (REL_SCALE_FAST - REL_SCALE_SLOW) * clampf(releaseVel, 0.0f, 1.0f);
++  voiceRelease[i]  = clampf(voiceRelease[i] * s, 5.0f, 4000.0f);
++  voiceOffMs[i]    = millis();
++  voiceReleased[i] = true;
++  env[i].release(voiceRelease[i]);   // must be set BEFORE noteOff
++  env[i].noteOff();
++}
++
++void synthPressure(int row, int col, float pressure) {
++  int i = row * 5 + col;
++  if (!voiceReleased[i]) voicePress[i] = clampf(pressure, 0.0f, 1.0f);
+ }
+ 
+ bool synthVoiceIdle(int row, int col) {
+@@ -306,7 +335,14 @@
+ 
+     // --- amplitude envelope (exponential; the library object's is linear) --
+     float ampEnv = expf(-dt / voiceTau[i]);
+-    if (voiceAmp0[i] * ampEnv < AMP_FLOOR) {
++    // Two ways a voice ends. The amplitude floor catches decaying patches;
++    // the release timer catches sustaining ones (tau 1e9), whose amplitude
++    // never falls at all. Without the second test those voices stayed
++    // "decaying" forever — burning CPU, and making synthVoiceIdle lie, which
++    // is why the preset audition went silent after the first sustained note.
++    bool spent = voiceReleased[i] &&
++                 (t - voiceOffMs[i]) > (uint32_t)(voiceRelease[i] + 50.0f);
++    if (voiceAmp0[i] * ampEnv < AMP_FLOOR || spent) {
+       oscA[i].amplitude(0.0f);
+       oscB[i].amplitude(0.0f);
+       env[i].noteOff();
+@@ -325,6 +361,8 @@
+     ctx.filtEnv  = filtEnv;
+     ctx.ageMs    = dt;
+     ctx.randomv  = voiceRand[i];
++    ctx.pressure = voicePress[i];
++    ctx.lfoPhase = voiceLfoPh[i];
+     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod);
+ 
+     // --- apply: amplitude -------------------------------------------------
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/Synth.h piano/Synth.h
+--- a/Synth.h	2026-08-02 13:58:57.458277370 +0000
++++ b/Synth.h	2026-08-02 14:00:41.929610792 +0000
+@@ -14,7 +14,17 @@
+ 
+ void synthBegin();                                  // build graph, start codec
+ void synthNoteOn(int row, int col, int velocity);
+-void synthNoteOff(int row, int col);
++
++// releaseVel 0..1: how fast the key came back up. Snatching your hand away
++// cuts the note short, lifting gently lets it hang. Defaulted so callers that
++// don't measure it (the preset audition) still compile.
++void synthNoteOff(int row, int col, float releaseVel = 0.5f);
++
++// Continuous key depth, 0..1, called every scan sweep while a key is held.
++// Feeds SRC_PRESSURE in the modulation matrix. This is polyphonic aftertouch
++// and it costs nothing extra — the scanner already has the number.
++void synthPressure(int row, int col, float pressure);
++
+ void synthUpdate();                                 // call often: modulation
+ bool synthVoiceIdle(int row, int col);
+ 
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/lego_piano.ino piano/lego_piano.ino
+--- a/lego_piano.ino	2026-08-02 13:58:57.459142779 +0000
++++ b/lego_piano.ino	2026-08-02 14:13:38.595099074 +0000
+@@ -19,6 +19,7 @@
+ //   l     list presets           b       recalibrate (hands off the keys)
+ //   r     reset learned spans    a       audio CPU and memory
+ //   i     isolation snapshot     s       settle probe
++//   m     pressure monitor       (hold a key and lean; any char stops)
+ //   q     idle (stop scanning — useful when chasing noise)
+ //
+ // USB Type must be "Serial + MIDI".
+@@ -99,6 +100,7 @@
+     case 'a': synthReportLoad();                            break;
+     case 'i': scannerIsolationSnapshot();                   break;
+     case 's': scannerSettleProbe();                         break;
++    case 'm': scannerPressureMonitor();                     break;
+     case 'q': idle = !idle;
+               Serial.println(idle ? "# idle (scanning stopped)"
+                                   : "# scanning");          break;
+diff -u -r -N '--exclude=test_press' '--exclude=*.o' orig/test_press.cpp piano/test_press.cpp
+--- a/test_press.cpp	1970-01-01 00:00:00.000000000 +0000
++++ b/test_press.cpp	2026-08-02 20:38:49.331152261 +0000
+@@ -0,0 +1,153 @@
++// ============================================================================
++// test_press.cpp — desktop tests for the pressure tracker
++// ============================================================================
++//   g++ -std=c++17 -Wall -O2 -o test_press test_press.cpp Press.cpp && ./test_press
++//
++// Fixtures are REAL depth traces captured from the instrument with the 'm'
++// monitor, not invented numbers. Two of these tests fail against the previous
++// implementations, which is the point: both bugs were reproducible on a
++// desktop in milliseconds and neither needed the board.
++// ============================================================================
++// This file is a DESKTOP test and must never be compiled into the sketch.
++// It defines main(). The Arduino build compiles every .cpp in the sketch
++// folder, and because the core's main() lives in an archive it loses to a
++// main() defined in a plain object file — the board then silently runs this
++// instead of setup()/loop(), enumerates over USB, and answers nothing.
++// Keep it in test/ (the Arduino build ignores subfolders other than src/),
++// and the guard below makes the mistake harmless if it ever moves.
++#ifdef ARDUINO
++#warning "test_press.cpp is in the sketch folder — move it to test/"
++#else
++
++#include "Press.h"
++#include <cstdio>
++#include <cmath>
++#include <vector>
++#include <string>
++
++static int failures = 0;
++
++static void check(bool ok, const std::string &what, const std::string &detail) {
++  printf("  [%s] %s%s%s\n", ok ? "PASS" : "FAIL", what.c_str(),
++         detail.empty() ? "" : "  -- ", detail.c_str());
++  if (!ok) failures++;
++}
++
++// ---- fixtures --------------------------------------------------------------
++// Key s16, captured 2026-08-02. Slow press, held, leaned, released.
++static const std::vector<float> S16 = {
++  0.103,0.249,0.249,0.255,0.268,0.322,0.382,0.389,0.427,0.452,0.541,0.663,
++  0.788,0.878,1.053,1.138,1.230,1.236,1.237,1.238,1.234,1.232,1.238,1.252,
++  1.227,1.255,0.773,0.566,0.500,0.319,0.263,0.230,0.119
++};
++// Key s14, captured earlier. Same gesture, different key.
++static const std::vector<float> S14 = {
++  0.100,0.174,0.178,0.181,0.182,0.184,0.200,0.211,0.228,0.280,0.304,0.369,
++  0.409,0.537,0.544,0.541,0.550,0.598,0.652,0.745,0.952,0.994,1.024,1.024,
++  1.024,1.028,1.036,1.045,1.056,1.060,1.083,1.078,1.074,1.068,0.980,0.910,
++  0.704,0.492,0.484,0.485,0.484,0.484,0.469,0.424,0.204,0.199,0.192,0.160
++};
++// A press held dead still: no lean at all. Must NOT invent expression.
++static std::vector<float> flatHold() {
++  std::vector<float> v = {0.10,0.35,0.70,1.05,1.19};
++  for (int i = 0; i < 40; i++) v.push_back(1.200 + (i % 3) * 0.004);  // noise
++  for (float d : {0.80,0.50,0.30,0.12}) v.push_back(d);
++  return v;
++}
++
++// Linear interpolation between captured samples, to a finer time grid.
++static std::vector<float> upsample(const std::vector<float> &in,
++                                   float fromDt, float toDt) {
++  std::vector<float> out;
++  int steps = (int)(fromDt / toDt);
++  for (size_t i = 0; i + 1 < in.size(); i++)
++    for (int k = 0; k < steps; k++)
++      out.push_back(in[i] + (in[i+1] - in[i]) * ((float)k / steps));
++  out.push_back(in.back());
++  return out;
++}
++
++struct Result { float lo, hi, ref, top; };
++
++// Replay a trace. dtMs is the spacing between samples.
++static Result replay(PressState &s, const std::vector<float> &trace,
++                     float dtMs, bool collect) {
++  pressNoteOn(s);
++  float age = 0.0f, lo = 2.0f, hi = -1.0f;
++  float plateau = 0.0f;
++  for (float d : trace) if (d > plateau) plateau = d;
++  for (float d : trace) {
++    float p = pressUpdate(s, PRESS_DEFAULT, d, age, dtMs);
++    // Sample the output only where the key is genuinely held near the bottom.
++    if (collect && d > plateau - PRESS_DEFAULT.heldBand) {
++      if (p < lo) lo = p;
++      if (p > hi) hi = p;
++    }
++    age += dtMs;
++  }
++  pressNoteOff(s, PRESS_DEFAULT);
++  return { lo, hi, s.ref, s.top };
++}
++
++static void suite(const char *name, const std::vector<float> &trace,
++                  float dtMs, float expectPlateauLo, float expectPlateauHi) {
++  printf("\n%s (%zu samples @ %.0f ms)\n", name, trace.size(), dtMs);
++  PressState s; pressInit(s);
++
++  Result r1 = replay(s, trace, dtMs, false);
++
++  // 1. The learned window must sit inside the held plateau, not span the
++  //    whole key travel. The previous build learned ref=0.172 top=1.373.
++  char buf[160];
++  snprintf(buf, sizeof buf, "learned ref=%.3f top=%.3f (range %.3f)",
++           r1.ref, r1.top, r1.top - r1.ref);
++  check(r1.ref > expectPlateauLo - 0.02f, "window floor is inside the hold", buf);
++  check(r1.top - r1.ref < 0.20f, "window is not the whole travel", buf);
++
++  // 2. The release ramp must not pull the floor down.
++  check(r1.ref > 0.5f, "release ramp excluded from learning", buf);
++
++  // 3. On the next note, pressure must actually swing across the plateau.
++  Result r2 = replay(s, trace, dtMs, true);
++  snprintf(buf, sizeof buf, "pressure %.2f .. %.2f (swing %.2f)",
++           r2.lo, r2.hi, r2.hi - r2.lo);
++  check(r2.hi - r2.lo > 0.35f, "usable pressure swing while held", buf);
++
++  // 4. Pressure must be near zero at the shallow end of the hold.
++  check(r2.lo < 0.35f, "rests near zero when not leaning", buf);
++
++  (void)expectPlateauHi;
++}
++
++int main() {
++  printf("pressure tracker tests\n======================");
++  suite("s16 — real capture", S16, 60.0f, 1.227f, 1.255f);
++  suite("s14 — real capture", S14, 60.0f, 1.024f, 1.083f);
++
++  // The same gesture at the real scan rate. The capture is 60 ms per sample
++  // because that is the monitor's print interval; the scanner actually sees
++  // it at ~1.2 ms. Interpolate rather than replaying faster — the gesture
++  // took two seconds and must still take two seconds.
++  suite("s16 — interpolated to true scan rate", upsample(S16, 60.0f, 1.2f),
++        1.2f, 1.227f, 1.255f);
++
++  printf("\nflat hold — no lean at all\n");
++  {
++    PressState s; pressInit(s);
++    auto t = flatHold();
++    replay(s, t, 1.2f, false);
++    Result r = replay(s, t, 1.2f, true);
++    char buf[160];
++    snprintf(buf, sizeof buf, "range=%.4f  output %.2f..%.2f",
++             pressRange(s), r.lo, r.hi);
++    check(pressRange(s) < PRESS_DEFAULT.minRange * 2.0f,
++          "narrow window when the key never leans", buf);
++    check(r.hi < 0.9f, "does not amplify ADC noise into full-scale", buf);
++  }
++
++  printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED",
++         failures, failures == 1 ? "" : "s");
++  return failures ? 1 : 0;
++}
++
++#endif  // ARDUINO

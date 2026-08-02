@@ -33,4 +33,5 @@ void  presetList();
 void  presetAnnounce();
 int   presetCurrent();
 
+void synthPressureTest();   // sweep pressure 0->1->0 with no scanner
 void synthReportLoad();                             // CPU and block usage

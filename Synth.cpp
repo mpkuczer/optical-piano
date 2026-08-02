@@ -87,6 +87,7 @@ static float    voicePress[NUM_VOICES];   // 0..1, updated while key is held
 static float    voiceLfoPh[NUM_VOICES];   // 0..1 cycles of LFO head start
 static float    voiceRelease[NUM_VOICES]; // ms, after release-velocity scaling
 static bool     voiceReleased[NUM_VOICES];
+static float    voiceLastGain[NUM_VOICES];  // for diagnostics only
 static uint32_t voiceOffMs[NUM_VOICES];
 static uint32_t rngState = 0x12345678;
 
@@ -368,6 +369,7 @@ void synthUpdate() {
     // --- apply: amplitude -------------------------------------------------
     float gain = 1.0f + mod[DST_AMP];
     if (gain < 0.0f) gain = 0.0f;
+    voiceLastGain[i] = gain;
     float a = voiceAmp0[i] * ampEnv * gain;
     float bLevel = clampf(voiceMixB[i] + mod[DST_OSCB], 0.0f, 1.5f);
     oscA[i].amplitude(a);
@@ -436,6 +438,41 @@ void presetSelect(int index) {
   currentPreset = ((index % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
   applyPresetBus();
   presetAnnounce();
+}
+
+// Drive pressure directly, with the scanner completely out of the picture.
+// If the sound does not change under this, the fault is in the audio graph or
+// the route table. If it does change, the fault is upstream in the scanner.
+// Everything so far has been guesswork for want of exactly this split.
+void synthPressureTest() {
+  const Preset &p = PRESET[currentPreset];
+  Serial.print("# pressure sweep on the middle key, preset '");
+  Serial.print(p.name); Serial.println("' — scanner bypassed");
+  bool routed = false;
+  for (int k = 0; k < p.nRoutes; k++)
+    if (p.routes[k].source == SRC_PRESSURE || p.routes[k].via == SRC_PRESSURE)
+      routed = true;
+  if (!routed)
+    Serial.println("# WARNING: this preset has no pressure route. Try 'flute',"
+                   " 'theremin', 'obie' or 'shimmer'.");
+
+  synthNoteOn(2, 2, 100);
+  uint32_t t0 = millis(), nextPrint = 0;
+  while (millis() - t0 < 6000) {
+    float x = (millis() - t0) / 6000.0f;
+    float press = x < 0.5f ? x * 2.0f : (1.0f - x) * 2.0f;   // 0 -> 1 -> 0
+    synthPressure(2, 2, press);
+    synthUpdate();
+    if (millis() > nextPrint) {
+      nextPrint = millis() + 250;
+      Serial.print("#   pressure="); Serial.print(press, 2);
+      Serial.print("  ampGain=");    Serial.print(voiceLastGain[12], 3);
+      Serial.println();
+    }
+    delay(2);
+  }
+  synthNoteOff(2, 2, 0.5f);
+  Serial.println("# sweep done. Did the sound move?");
 }
 
 void synthReportLoad() {
