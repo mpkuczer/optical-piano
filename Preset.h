@@ -1,11 +1,18 @@
 // ============================================================================
 // Preset.h — what a patch is
 // ============================================================================
-#pragma once
-#include <Arduino.h>
-
 // A Preset is just numbers. Switching preset doesn't change the machinery,
 // only the values fed to the 25 voices.
+//
+// The dedicated modulation fields are gone. There used to be vibCents/vibHz/
+// vibDelayMs for vibrato, pwmD/pwmHz for pulse width, and fVel for velocity
+// brightness — three features, three code paths, three fixed depths. They are
+// now three rows in a route table, and combinations nobody planned for come
+// free: keytrack to cutoff, amplitude envelope to cutoff, random to detune.
+#pragma once
+#include <Arduino.h>
+#include "ModMatrix.h"
+
 struct Preset {
   const char *name;
 
@@ -32,8 +39,6 @@ struct Preset {
                         //   fPeak == fBase means no sweep, a static filter
   float fTau;           // how fast it sweeps between them, ms
   float res;            // 0.7 neutral, >2 vocal, >4 whistles
-  float fVel;           // how much velocity opens the filter — this is what
-                        //   makes hard hits BRIGHTER, not merely louder
 
   // Filter response blend. The state-variable filter computes all three
   // simultaneously, so this costs nothing but changes everything:
@@ -42,26 +47,17 @@ struct Preset {
   //   highpass — removes lows. Thin, glassy, brittle.
   float lpMix, bpMix, hpMix;
 
-  // ---- motion ------------------------------------------------------------
-  float pwmD, pwmHz;    // pulse-width modulation depth and rate (PULSE only)
-
-  // Vibrato: a slow wobble in PITCH. Distinct from tremolo (wobble in volume)
-  // and from delay (repeats). 5-7 Hz is the natural range — much slower reads
-  // as drunk, much faster as a special effect.
-  float vibCents;       // depth, cents either side. 15 subtle, 30 singing,
-                        //   60+ operatic. 0 = off.
-  float vibHz;          // rate
-  float vibDelayMs;     // wait this long after the note starts, then fade the
-                        //   vibrato in over ~300 ms. Flute and violin players
-                        //   do exactly this; starting a note with full vibrato
-                        //   sounds mechanical.
+  // ---- modulation --------------------------------------------------------
+  LfoConfig       lfo1, lfo2;   // rate, shape, delay before starting, fade-in
+  const ModRoute *routes;       // source -> destination -> depth
+  uint8_t         nRoutes;
 
   // ---- bus effects (shared by all voices) --------------------------------
   float drive;          // waveshaper. 0 = clean. Adds harmonics and grit.
   float verb;           // reverb send, 0..1
   float delaySend;      // delay send, 0..1
   float delayMs;        // delay time, ms (see DELAY_MAX_MS)
-  float delayFb;        // delay feedback, 0..0.9 — how many repeats
+  float delayFb;        // delay feedback, 0..0.85 — how many repeats
 };
 
 extern const Preset PRESET[];

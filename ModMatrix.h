@@ -1,0 +1,104 @@
+// ============================================================================
+// ModMatrix.h — route any modulation source to any destination
+// ============================================================================
+// This is the thing that makes a synth feel open-ended rather than fixed. Up
+// to now every modulation was hardcoded as its own preset field: vibCents was
+// "LFO to pitch", pwmD was "LFO to pulse width", fVel was "velocity to
+// cutoff". Each needed its own field, its own code path, its own fixed depth.
+//
+// A matrix replaces all of them with one mechanism: a list of (source,
+// destination, depth) triples. Velocity to cutoff and LFO to pitch stop being
+// separate features and become two rows in a table.
+//
+// DELIBERATELY NO ARDUINO DEPENDENCIES. This file and ModMatrix.cpp compile
+// with plain g++, which means the maths can be unit tested on a desktop
+// instead of being debugged by flashing a board and listening. Every bug in
+// this project so far — decibels read as a ratio, a normalised control read
+// as a Q value, two envelopes swapped — was a unit error that a test would
+// have caught in a second.
+// ============================================================================
+#pragma once
+#include <stdint.h>
+
+// ---- sources -------------------------------------------------------------
+enum ModSource : uint8_t {
+  SRC_CONST = 0,   // always 1.0 — use for a fixed offset
+  SRC_VELOCITY,    // 0..1, how hard the key was struck
+  SRC_KEYTRACK,    // -1..1, position on the keyboard (0 at middle C)
+  SRC_AMPENV,      // 0..1, the note's own amplitude envelope
+  SRC_FILTENV,     // 0..1, the note's own filter sweep
+  SRC_LFO1,        // -1..1 bipolar
+  SRC_LFO2,        // -1..1 bipolar
+  SRC_LFO1_UNI,    // 0..1 unipolar version of LFO1
+  SRC_RANDOM,      // -1..1, fixed for the life of one note. This is how you
+                   //   fake analog drift: every note is slightly different.
+  SRC_NOTEAGE,     // 0..1 ramp over NOTEAGE_FULL_MS since the note started
+  NUM_SOURCES
+};
+
+// ---- destinations --------------------------------------------------------
+// Units matter. Depth is expressed in the destination's own units, so a
+// route's depth reads as "how much of this, at full source value".
+enum ModDest : uint8_t {
+  DST_PITCH = 0,   // cents, both oscillators (vibrato lives here)
+  DST_DETUNE,      // cents, oscillator B only (widens or narrows the beat)
+  DST_CUTOFF,      // SEMITONES of filter cutoff offset
+  DST_AMP,         // linear gain offset, added to 1.0 (tremolo lives here)
+  DST_PWM,         // pulse width offset, added to 0.5
+  DST_RES,         // resonance offset
+  DST_OSCB,        // oscillator B level offset, added to mixB
+  NUM_DESTS
+};
+
+struct ModRoute {
+  uint8_t source;
+  uint8_t dest;
+  float   depth;
+};
+
+// ---- LFO -----------------------------------------------------------------
+enum LfoShape : uint8_t {
+  LFO_SINE = 0,
+  LFO_TRIANGLE,
+  LFO_SAW_DOWN,
+  LFO_RAMP_UP,
+  LFO_SQUARE,
+  LFO_SAMPLE_HOLD,   // steps to a new random value once per cycle
+  NUM_LFO_SHAPES
+};
+
+struct LfoConfig {
+  float   rateHz;
+  uint8_t shape;
+  float   delayMs;   // hold at zero this long after the note starts
+  float   fadeMs;    // then fade in over this long. Players do this; starting
+                     //   a note at full vibrato sounds mechanical.
+};
+
+// Everything the matrix needs to know about one voice at one instant.
+struct ModContext {
+  float velocity;    // 0..1
+  float keytrack;    // -1..1
+  float ampEnv;      // 0..1
+  float filtEnv;     // 0..1
+  float ageMs;       // since note on
+  float randomv;     // -1..1, drawn once per note
+};
+
+const float NOTEAGE_FULL_MS = 2000.0f;
+
+// One LFO, evaluated from the note's age. Stateless on purpose: sample-and-
+// hold is derived by hashing the cycle number rather than being remembered,
+// so the same inputs always give the same output and tests are reproducible.
+float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed);
+
+// Sum every route into out[NUM_DESTS]. Destinations with no routes come back
+// as zero, which is the neutral value for all of them.
+void modEvaluate(const ModContext &ctx,
+                 const LfoConfig &lfo1, const LfoConfig &lfo2,
+                 const ModRoute *routes, int numRoutes,
+                 uint32_t seed,
+                 float out[NUM_DESTS]);
+
+const char *modSourceName(uint8_t s);
+const char *modDestName(uint8_t d);

@@ -27,6 +27,7 @@
 #include "Config.h"
 #include "Preset.h"
 #include "Synth.h"
+#include "ModMatrix.h"
 
 // ---- update rates --------------------------------------------------------
 static const float    AMP_FLOOR   = 0.002f;   // below this, close the voice
@@ -75,13 +76,25 @@ static float    voiceMixB[NUM_VOICES];
 static float    voiceCutPeak[NUM_VOICES];
 static float    voiceCutBase[NUM_VOICES];
 static float    voiceFTau[NUM_VOICES];
-static float    voiceFA[NUM_VOICES];    // base pitch, before vibrato
+static float    voiceFA[NUM_VOICES];    // base pitch, before modulation
 static float    voiceFB[NUM_VOICES];
+static float    voiceVel[NUM_VOICES];   // 0..1, for SRC_VELOCITY
+static float    voiceKeytrk[NUM_VOICES];// -1..1, for SRC_KEYTRACK
+static float    voiceRand[NUM_VOICES];  // -1..1, drawn once per note
+static uint32_t voiceSeed[NUM_VOICES];  // sample-and-hold seed
+static float    voiceResBase[NUM_VOICES];
+static uint32_t rngState = 0x12345678;
+
+// Cheap deterministic RNG. Per-note randomness is how analog drift is faked:
+// every note lands on a slightly different detune and brightness.
+static float nextRandomBipolar() {
+  rngState = rngState * 1664525u + 1013904223u;
+  return (float)((rngState >> 8) & 0xFFFF) / 32767.5f - 1.0f;
+}
 static bool     voiceDecaying[NUM_VOICES];
 
 static int      currentPreset = 0;
 static uint32_t lastUpdateMs  = 0;
-static float    lfoPhase      = 0.0f;
 static float    shapeTable[65];
 
 static inline float clampf(float x, float lo, float hi) {
@@ -227,15 +240,21 @@ void synthNoteOn(int row, int col, int velocity) {
   float fA   = voiceFreq[i] * powf(2.0f, -half / 1200.0f);
   float fB   = voiceFreq[i] * powf(2.0f, (p.semiB * 100.0f + half) / 1200.0f);
 
-  // Velocity opens the filter, so hard hits are brighter and not just louder.
-  float open = 1.0f + p.fVel * (v - 0.5f) * 2.0f;
-  float base = clampf(voiceFreq[i] * p.fBase,        FILT_MIN_HZ, FILT_MAX_HZ);
-  float peak = clampf(voiceFreq[i] * p.fPeak * open, base,        FILT_MAX_HZ);
+  // Velocity no longer opens the filter here — that is now a route
+  // (SRC_VELOCITY -> DST_CUTOFF) applied in synthUpdate along with everything
+  // else, so all modulation goes through one path.
+  float base = clampf(voiceFreq[i] * p.fBase, FILT_MIN_HZ, FILT_MAX_HZ);
+  float peak = clampf(voiceFreq[i] * p.fPeak, base,        FILT_MAX_HZ);
 
   voiceAmp0[i]     = amp;
   voiceMixB[i]     = p.mixB;
   voiceFA[i]       = fA;
   voiceFB[i]       = fB;
+  voiceVel[i]      = v;
+  voiceKeytrk[i]   = clampf((MIDI_NOTE[row][col] - 60) / 12.0f, -1.0f, 1.0f);
+  voiceRand[i]     = nextRandomBipolar();
+  voiceSeed[i]     = rngState;
+  voiceResBase[i]  = p.res;
   voiceTau[i]      = p.tau * (TAU_VEL_MIN + (TAU_VEL_MAX - TAU_VEL_MIN) * v);
   voiceCutPeak[i]  = peak;
   voiceCutBase[i]  = base;
@@ -252,7 +271,8 @@ void synthNoteOn(int row, int col, int velocity) {
   oscB[i].frequency(fB);
   oscA[i].amplitude(amp);
   oscB[i].amplitude(amp * p.mixB);
-  if (p.pwmD > 0.0f) { oscA[i].pulseWidth(0.5f); oscB[i].pulseWidth(0.5f); }
+  oscA[i].pulseWidth(0.5f);
+  oscB[i].pulseWidth(0.5f);
   vfilt[i].resonance(p.res);
   vfilt[i].frequency(peak);
   env[i].attack(p.a);
@@ -278,50 +298,67 @@ void synthUpdate() {
 
   const Preset &p = PRESET[currentPreset];
   uint32_t t = millis();
-
-  if (p.pwmD > 0.0f) {
-    lfoPhase += 6.2831853f * p.pwmHz * (UPDATE_MS / 1000.0f);
-    if (lfoPhase > 6.2831853f) lfoPhase -= 6.2831853f;
-  }
+  float mod[NUM_DESTS];
 
   for (int i = 0; i < NUM_VOICES; i++) {
     if (!voiceDecaying[i]) continue;
     float dt = (float)(t - voiceOnMs[i]);
 
-    float a = voiceAmp0[i] * expf(-dt / voiceTau[i]);
-    if (a < AMP_FLOOR) {
+    // --- amplitude envelope (exponential; the library object's is linear) --
+    float ampEnv = expf(-dt / voiceTau[i]);
+    if (voiceAmp0[i] * ampEnv < AMP_FLOOR) {
       oscA[i].amplitude(0.0f);
       oscB[i].amplitude(0.0f);
       env[i].noteOff();
       voiceDecaying[i] = false;
       continue;
     }
+
+    // --- filter sweep, peak down to base ----------------------------------
+    float filtEnv = expf(-dt / voiceFTau[i]);
+
+    // --- evaluate every modulation route for this voice -------------------
+    ModContext ctx;
+    ctx.velocity = voiceVel[i];
+    ctx.keytrack = voiceKeytrk[i];
+    ctx.ampEnv   = ampEnv;
+    ctx.filtEnv  = filtEnv;
+    ctx.ageMs    = dt;
+    ctx.randomv  = voiceRand[i];
+    modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod);
+
+    // --- apply: amplitude -------------------------------------------------
+    float gain = 1.0f + mod[DST_AMP];
+    if (gain < 0.0f) gain = 0.0f;
+    float a = voiceAmp0[i] * ampEnv * gain;
+    float bLevel = clampf(voiceMixB[i] + mod[DST_OSCB], 0.0f, 1.5f);
     oscA[i].amplitude(a);
-    oscB[i].amplitude(a * voiceMixB[i]);
+    oscB[i].amplitude(a * bLevel);
 
-    float k = expf(-dt / voiceFTau[i]);
-    vfilt[i].frequency(voiceCutBase[i] +
-                       (voiceCutPeak[i] - voiceCutBase[i]) * k);
-
-    if (p.pwmD > 0.0f) {
-      // Phase-offset per voice so a chord shimmers instead of pulsing as one.
-      float ph = lfoPhase + i * 0.37f;
-      oscA[i].pulseWidth(clampf(0.5f + p.pwmD * sinf(ph),        0.05f, 0.95f));
-      oscB[i].pulseWidth(clampf(0.5f + p.pwmD * sinf(ph + 1.9f), 0.05f, 0.95f));
+    // --- apply: pitch (cents on both) and detune (cents on B only) --------
+    if (mod[DST_PITCH] != 0.0f || mod[DST_DETUNE] != 0.0f) {
+      float mA = powf(2.0f, mod[DST_PITCH] / 1200.0f);
+      float mB = powf(2.0f, (mod[DST_PITCH] + mod[DST_DETUNE]) / 1200.0f);
+      oscA[i].frequency(voiceFA[i] * mA);
+      oscB[i].frequency(voiceFB[i] * mB);
     }
 
-    // Vibrato. Phase runs from each note's own start, so notes in a chord
-    // wobble independently rather than in lockstep. Unlike oscillator sync,
-    // this is safe to drive from here: 5 Hz sampled every 2 ms is ~100 steps
-    // per cycle, far finer than the ear can resolve.
-    if (p.vibCents > 0.0f) {
-      float ramp = (p.vibDelayMs > 0.0f)
-                   ? clampf((dt - p.vibDelayMs) / 300.0f, 0.0f, 1.0f) : 1.0f;
-      float cents = p.vibCents * ramp
-                    * sinf(6.2831853f * p.vibHz * dt * 0.001f);
-      float m = powf(2.0f, cents / 1200.0f);
-      oscA[i].frequency(voiceFA[i] * m);
-      oscB[i].frequency(voiceFB[i] * m);
+    // --- apply: cutoff. The sweep is the base curve; routes offset it in
+    //     SEMITONES, which is why velocity and keytrack compose sensibly.
+    float cut = voiceCutBase[i] + (voiceCutPeak[i] - voiceCutBase[i]) * filtEnv;
+    if (mod[DST_CUTOFF] != 0.0f)
+      cut *= powf(2.0f, mod[DST_CUTOFF] / 12.0f);
+    vfilt[i].frequency(clampf(cut, FILT_MIN_HZ, FILT_MAX_HZ));
+
+    // --- apply: resonance and pulse width ---------------------------------
+    if (mod[DST_RES] != 0.0f)
+      vfilt[i].resonance(clampf(voiceResBase[i] + mod[DST_RES], 0.7f, 4.5f));
+
+    if (mod[DST_PWM] != 0.0f) {
+      float w = clampf(0.5f + mod[DST_PWM], 0.05f, 0.95f);
+      oscA[i].pulseWidth(w);
+      // Offset osc B slightly so the two don't move as one block.
+      oscB[i].pulseWidth(clampf(0.5f + mod[DST_PWM] * 0.8f, 0.05f, 0.95f));
     }
   }
 }
@@ -339,14 +376,21 @@ void presetList() {
   for (int i = 0; i < PRESET_COUNT; i++) {
     const Preset &q = PRESET[i];
     const char *resp = q.hpMix > 0.5f ? "HP" : (q.bpMix > 0.5f ? "BP" : "LP");
-    Serial.print("#   "); Serial.print(i);
+    Serial.print("#  "); Serial.print(i);
     Serial.print(i == currentPreset ? " * " : "   ");
     Serial.print(q.name);
     Serial.print("\t"); Serial.print(resp);
-    Serial.print("\tdetune "); Serial.print(q.cents, 0);
-    Serial.print("c\tdrive "); Serial.print(q.drive, 2);
-    Serial.print("\tverb "); Serial.print(q.verb, 2);
-    Serial.print("\tdelay "); Serial.println(q.delaySend, 2);
+    Serial.print("\tdet "); Serial.print(q.cents, 0);
+    Serial.print("c\tverb "); Serial.print(q.verb, 2);
+    Serial.print("\tdly "); Serial.print(q.delaySend, 2);
+    Serial.print("\t| ");
+    for (int k = 0; k < q.nRoutes; k++) {
+      Serial.print(modSourceName(q.routes[k].source));
+      Serial.print(">");
+      Serial.print(modDestName(q.routes[k].dest));
+      Serial.print(" ");
+    }
+    Serial.println();
   }
 }
 
