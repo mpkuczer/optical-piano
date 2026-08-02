@@ -83,6 +83,11 @@ static float    voiceKeytrk[NUM_VOICES];// -1..1, for SRC_KEYTRACK
 static float    voiceRand[NUM_VOICES];  // -1..1, drawn once per note
 static uint32_t voiceSeed[NUM_VOICES];  // sample-and-hold seed
 static float    voiceResBase[NUM_VOICES];
+static float    voicePress[NUM_VOICES];   // 0..1, updated while key is held
+static float    voiceLfoPh[NUM_VOICES];   // 0..1 cycles of LFO head start
+static float    voiceRelease[NUM_VOICES]; // ms, after release-velocity scaling
+static bool     voiceReleased[NUM_VOICES];
+static uint32_t voiceOffMs[NUM_VOICES];
 static uint32_t rngState = 0x12345678;
 
 // Cheap deterministic RNG. Per-note randomness is how analog drift is faked:
@@ -209,6 +214,9 @@ void synthBegin() {
     vfilt[i].frequency(FILT_MAX_HZ);
 
     voiceDecaying[i] = false;
+    voicePress[i]    = 0.0f;
+    voiceReleased[i] = false;
+    voiceRelease[i]  = PRESET[0].r;
   }
   for (int m = 0; m < 7; m++)
     for (int ch = 0; ch < 4; ch++) mix1[m].gain(ch, MIX1_GAIN);
@@ -255,6 +263,13 @@ void synthNoteOn(int row, int col, int velocity) {
   voiceRand[i]     = nextRandomBipolar();
   voiceSeed[i]     = rngState;
   voiceResBase[i]  = p.res;
+  voicePress[i]    = 0.0f;
+  voiceReleased[i] = false;
+  voiceRelease[i]  = p.r;
+  // Golden-ratio stride: 25 voices spread almost perfectly evenly around the
+  // cycle, and neighbouring keys never land close together. A chord played
+  // dead flat still shimmers because each note's LFO sits somewhere else.
+  voiceLfoPh[i]    = fmodf(i * 0.6180339887f, 1.0f);
   voiceTau[i]      = p.tau * (TAU_VEL_MIN + (TAU_VEL_MAX - TAU_VEL_MIN) * v);
   voiceCutPeak[i]  = peak;
   voiceCutBase[i]  = base;
@@ -284,8 +299,22 @@ void synthNoteOn(int row, int col, int velocity) {
   AudioInterrupts();
 }
 
-void synthNoteOff(int row, int col) {
-  env[row * 5 + col].noteOff();
+void synthNoteOff(int row, int col, float releaseVel) {
+  int i = row * 5 + col;
+  // Fast lift -> short release, slow lift -> long. The preset's r is the
+  // midpoint, not the maximum, so both directions are available.
+  float s = REL_SCALE_SLOW +
+            (REL_SCALE_FAST - REL_SCALE_SLOW) * clampf(releaseVel, 0.0f, 1.0f);
+  voiceRelease[i]  = clampf(voiceRelease[i] * s, 5.0f, 4000.0f);
+  voiceOffMs[i]    = millis();
+  voiceReleased[i] = true;
+  env[i].release(voiceRelease[i]);   // must be set BEFORE noteOff
+  env[i].noteOff();
+}
+
+void synthPressure(int row, int col, float pressure) {
+  int i = row * 5 + col;
+  if (!voiceReleased[i]) voicePress[i] = clampf(pressure, 0.0f, 1.0f);
 }
 
 bool synthVoiceIdle(int row, int col) {
@@ -306,7 +335,14 @@ void synthUpdate() {
 
     // --- amplitude envelope (exponential; the library object's is linear) --
     float ampEnv = expf(-dt / voiceTau[i]);
-    if (voiceAmp0[i] * ampEnv < AMP_FLOOR) {
+    // Two ways a voice ends. The amplitude floor catches decaying patches;
+    // the release timer catches sustaining ones (tau 1e9), whose amplitude
+    // never falls at all. Without the second test those voices stayed
+    // "decaying" forever — burning CPU, and making synthVoiceIdle lie, which
+    // is why the preset audition went silent after the first sustained note.
+    bool spent = voiceReleased[i] &&
+                 (t - voiceOffMs[i]) > (uint32_t)(voiceRelease[i] + 50.0f);
+    if (voiceAmp0[i] * ampEnv < AMP_FLOOR || spent) {
       oscA[i].amplitude(0.0f);
       oscB[i].amplitude(0.0f);
       env[i].noteOff();
@@ -325,6 +361,8 @@ void synthUpdate() {
     ctx.filtEnv  = filtEnv;
     ctx.ageMs    = dt;
     ctx.randomv  = voiceRand[i];
+    ctx.pressure = voicePress[i];
+    ctx.lfoPhase = voiceLfoPh[i];
     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod);
 
     // --- apply: amplitude -------------------------------------------------

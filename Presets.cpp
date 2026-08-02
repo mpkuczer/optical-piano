@@ -23,14 +23,23 @@ static const LfoConfig LFO_OFF = { 0.0f, LFO_SINE, 0.0f, 0.0f };
 // Flute: vibrato that fades in, and brightness that follows loudness — as a
 // note dies away it also darkens, which is what real instruments do.
 static const ModRoute R_FLUTE[] = {
-  { SRC_LFO1,     DST_PITCH,   22.0f },
-  { SRC_AMPENV,   DST_CUTOFF,   6.0f },
+  // Vibrato that BLOOMS under pressure: the LFO is routed through pressure,
+  // so a held key is steady until you lean on it. This is what a flautist
+  // does with breath and it is the reason `via` exists.
+  { SRC_LFO1,     DST_PITCH,   26.0f, SRC_PRESSURE },
+  { SRC_LFO1,     DST_PITCH,    6.0f },   // a little always present
+  { SRC_PRESSURE, DST_CUTOFF,   7.0f },   // lean in and it opens up
   { SRC_VELOCITY, DST_CUTOFF,   5.0f },
 };
 
-// Theremin: deep immediate vibrato, nothing else.
+// Theremin: the player's other hand controls VOLUME, continuously. Pressure
+// is that hand. SRC_CONST pulls the floor down so pressure has room to push
+// back up: 0.45 gain at rest, 1.0 fully depressed.
 static const ModRoute R_THEREMIN[] = {
-  { SRC_LFO1, DST_PITCH, 45.0f },
+  { SRC_LFO1,     DST_PITCH,  45.0f },
+  { SRC_CONST,    DST_AMP,    -0.55f },
+  { SRC_PRESSURE, DST_AMP,     0.55f },
+  { SRC_PRESSURE, DST_CUTOFF,  4.0f  },
 };
 
 // Airy: vibrato plus a slow wobble in the second oscillator's level, so the
@@ -58,8 +67,9 @@ static const ModRoute R_DRIFT[] = {
 // Oberheim-ish: wide velocity brightness, slow vibrato well after onset.
 static const ModRoute R_OBIE[] = {
   { SRC_VELOCITY, DST_CUTOFF, 16.0f },
-  { SRC_LFO1,     DST_PITCH,  12.0f },
+  { SRC_LFO1,     DST_PITCH,  12.0f, SRC_PRESSURE },
   { SRC_RANDOM,   DST_DETUNE,  4.0f },
+  { SRC_PRESSURE, DST_CUTOFF, 12.0f },
 };
 
 // Percussive: hard hits much brighter, brightness tracking the envelope.
@@ -70,7 +80,9 @@ static const ModRoute R_PLUCK[] = {
 
 // Pulse-width motion, the Oberheim shimmer.
 static const ModRoute R_SHIMMER[] = {
-  { SRC_LFO2,     DST_PWM,     0.38f },
+  { SRC_LFO2,     DST_PWM,     0.30f },
+  { SRC_LFO2,     DST_PWM,     0.18f, SRC_PRESSURE },
+  { SRC_PRESSURE, DST_OSCB,    0.25f },
   { SRC_VELOCITY, DST_CUTOFF,  6.0f  },
 };
 

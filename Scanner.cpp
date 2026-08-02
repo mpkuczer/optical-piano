@@ -42,6 +42,8 @@ struct Key {
   uint16_t prev_v;
   uint32_t prev_us;
   bool     have_prev;
+  float    press;         // 0..1 smoothed depth beyond PRESS_LO
+  float    rise_spans_s;  // smoothed upward speed, spans per second
 };
 
 static Key key[5][5];
@@ -107,6 +109,7 @@ void scannerCalibrate() {
       if (k.span == 0) k.span = DEFAULT_SPAN;
       deriveThresholds(k);
       k.state = 0; k.rel_armed = false; k.above_off = false; k.have_prev = false;
+      k.press = 0.0f; k.rise_spans_s = 0.0f;
       reportKey(r, c);
     }
 }
@@ -155,6 +158,19 @@ static int velocityFromFlight(float flight_us) {
   if (v > 127) v = 127;
   if (v < 1) v = 1;
   return v;
+}
+
+static float clampf(float v, float lo, float hi) {
+  return v < lo ? lo : (v > hi ? hi : v);
+}
+
+// Raw ADC level -> 0..1 pressure. Depth is measured from the key's own
+// baseline and scaled by its own learned span, so a key with a shallower
+// throw still reaches full pressure.
+static float pressureFromLevel(const Key &k, uint16_t v) {
+  if (v >= k.baseline || k.span == 0) return 0.0f;
+  float depth = (float)(k.baseline - v) / (float)k.span;
+  return clampf((depth - PRESS_LO) / (PRESS_HI - PRESS_LO), 0.0f, 1.0f);
 }
 
 // Where between the previous sample and this one did the signal cross `th`?
@@ -216,8 +232,23 @@ static void feed(int r, int c, uint16_t v) {
       }
       break;
 
-    case 2: // SOUNDING — wait for a genuine release
+    case 2: // SOUNDING — report pressure, wait for a genuine release
       if (v < k.note_low) k.note_low = v;
+
+      // The key is still under a finger and we still have a position
+      // reading, so keep feeding it to the voice. This is the whole point of
+      // an optical keybed: a MIDI keyboard would have thrown this away.
+      k.press += PRESS_SMOOTH * (pressureFromLevel(k, v) - k.press);
+      synthPressure(r, c, k.press);
+
+      // Smoothed upward speed, for release velocity. Only ascents count;
+      // pressing further down must not read as a fast release.
+      if (k.have_prev && now_us > k.prev_us && v > k.prev_v && k.span) {
+        float spans_s = ((float)(v - k.prev_v) / (float)(now_us - k.prev_us))
+                        * 1000000.0f / (float)k.span;
+        k.rise_spans_s += PRESS_SMOOTH * (spans_s - k.rise_spans_s);
+      }
+
       if (!k.above_off && v > k.off_lv) { k.above_off = true; k.rose = now_us; }
       else if (k.above_off && v <= k.off_lv) {
         k.above_off = false;
@@ -231,9 +262,11 @@ static void feed(int r, int c, uint16_t v) {
       if (k.above_off) {
         bool off = k.rel_armed || (now_us - k.rose) > EXCURSION_MAX_US;
         if (off) {
-          synthNoteOff(r, c);
+          float relv = clampf(k.rise_spans_s / REL_FAST_SPANS_PER_S,
+                              0.0f, 1.0f);
+          synthNoteOff(r, c, relv);
 #if SEND_USB_MIDI
-          usbMIDI.sendNoteOff(MIDI_NOTE[r][c], 0, 1);
+          usbMIDI.sendNoteOff(MIDI_NOTE[r][c], (int)(relv * 127.0f), 1);
 #endif
 #if VERBOSE
           Serial.print("s"); Serial.print(r * 5 + c + 1);
@@ -244,6 +277,8 @@ static void feed(int r, int c, uint16_t v) {
             uint16_t obs = k.baseline - k.note_low;
             if (obs > k.span + 50) { k.span = obs; deriveThresholds(k); }
           }
+          k.press = 0.0f;
+          k.rise_spans_s = 0.0f;
           k.state = 0;
         }
       }

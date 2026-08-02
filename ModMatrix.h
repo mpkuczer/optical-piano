@@ -33,6 +33,11 @@ enum ModSource : uint8_t {
   SRC_RANDOM,      // -1..1, fixed for the life of one note. This is how you
                    //   fake analog drift: every note is slightly different.
   SRC_NOTEAGE,     // 0..1 ramp over NOTEAGE_FULL_MS since the note started
+  SRC_PRESSURE,    // 0..1, CONTINUOUS key depth beyond the trigger point.
+                   //   Unlike every other source this keeps changing while
+                   //   you hold the key, because the optical sensors report
+                   //   position and not just on/off. Polyphonic: each key
+                   //   has its own value.
   NUM_SOURCES
 };
 
@@ -54,6 +59,11 @@ struct ModRoute {
   uint8_t source;
   uint8_t dest;
   float   depth;
+  // Optional second source that SCALES this route. Summing alone can't
+  // express "vibrato that grows as you lean on the key" — that needs a
+  // multiply. Left at SRC_CONST (which is always 1.0) a route behaves
+  // exactly as before, so existing three-field tables are unaffected.
+  uint8_t via;
 };
 
 // ---- LFO -----------------------------------------------------------------
@@ -83,6 +93,11 @@ struct ModContext {
   float filtEnv;     // 0..1
   float ageMs;       // since note on
   float randomv;     // -1..1, drawn once per note
+  float pressure;    // 0..1, updated continuously while the key is held
+  float lfoPhase;    // 0..1 CYCLES of head start for this voice's LFOs.
+                     //   Without it, every note in a chord struck together
+                     //   wobbles in lockstep, which sounds like one machine
+                     //   rather than several players.
 };
 
 const float NOTEAGE_FULL_MS = 2000.0f;
@@ -90,7 +105,10 @@ const float NOTEAGE_FULL_MS = 2000.0f;
 // One LFO, evaluated from the note's age. Stateless on purpose: sample-and-
 // hold is derived by hashing the cycle number rather than being remembered,
 // so the same inputs always give the same output and tests are reproducible.
-float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed);
+// phaseOffset is in cycles (0..1) and shifts this voice's LFO relative to
+// other voices. Defaulted so existing tests and callers are unaffected.
+float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed,
+               float phaseOffset = 0.0f);
 
 // Sum every route into out[NUM_DESTS]. Destinations with no routes come back
 // as zero, which is the neutral value for all of them.

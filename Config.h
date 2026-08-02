@@ -51,6 +51,26 @@ const uint32_t OVERSHOOT_WINDOW_US = 60000;
 const uint32_t EXCURSION_MAX_US    = 250000;
 const uint32_t DESCEND_TIMEOUT_US  = 600000;
 
+// ---- pressure (continuous key depth while held) --------------------------
+// The sensors report POSITION, not just on/off, so a held key can keep
+// controlling the sound. Depth is a fraction of the key's learned span:
+// PRESS_LO is the point where pressure starts counting (must be >= ON_DEPTH,
+// or a note would begin with pressure already applied), PRESS_HI is where it
+// reads full. Leave headroom below 1.0 — nobody reaches the mechanical stop.
+const float PRESS_LO    = 0.45f;
+const float PRESS_HI    = 0.88f;
+// One-pole smoothing on the raw depth. At ~850 Hz sweep rate, 0.12 gives a
+// time constant near 10 ms: fast enough to feel immediate, slow enough that
+// ADC noise doesn't make the filter chatter.
+const float PRESS_SMOOTH = 0.12f;
+
+// ---- release velocity ----------------------------------------------------
+// How fast the key came back up, measured as spans-per-second of ascent.
+// Snatching your hand away shortens the release; lifting gently lengthens it.
+const float REL_FAST_SPANS_PER_S = 7.0f;   // this ascent rate reads as 1.0
+const float REL_SCALE_FAST       = 0.35f;  // release time multiplier, fast
+const float REL_SCALE_SLOW       = 1.60f;  // release time multiplier, slow
+
 // ---- velocity curve ------------------------------------------------------
 const float VEL_FAST_MS = 3.0f;
 const float VEL_SLOW_MS = 200.0f;

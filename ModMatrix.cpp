@@ -21,7 +21,8 @@ static float clampf(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
-float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed) {
+float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed,
+               float phaseOffset) {
   if (cfg.rateHz <= 0.0f) return 0.0f;
   // Strict '<': at exactly delayMs (and at ageMs 0 with no delay) the LFO
   // must EVALUATE, not return zero. Using '<=' silently discarded the first
@@ -34,7 +35,10 @@ float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed) {
              ? clampf((ageMs - cfg.delayMs) / cfg.fadeMs, 0.0f, 1.0f)
              : 1.0f;
 
-  float phase = t * cfg.rateHz;                      // in cycles
+  // The offset is added in CYCLES, so it shifts the waveform without
+  // changing its rate. Sample-and-hold picks up the offset too, which means
+  // held notes step to new values at different moments rather than together.
+  float phase = t * cfg.rateHz + phaseOffset;        // in cycles
   float frac  = phase - floorf(phase);               // 0..1 within the cycle
   float v = 0.0f;
 
@@ -61,11 +65,14 @@ static float sourceValue(uint8_t src, const ModContext &c,
     case SRC_KEYTRACK: return c.keytrack;
     case SRC_AMPENV:   return c.ampEnv;
     case SRC_FILTENV:  return c.filtEnv;
-    case SRC_LFO1:     return lfoValue(lfo1, c.ageMs, seed);
-    case SRC_LFO2:     return lfoValue(lfo2, c.ageMs, seed ^ 0x9E3779B9U);
-    case SRC_LFO1_UNI: return 0.5f * (lfoValue(lfo1, c.ageMs, seed) + 1.0f);
+    case SRC_LFO1:     return lfoValue(lfo1, c.ageMs, seed, c.lfoPhase);
+    case SRC_LFO2:     return lfoValue(lfo2, c.ageMs, seed ^ 0x9E3779B9U,
+                                       c.lfoPhase);
+    case SRC_LFO1_UNI: return 0.5f * (lfoValue(lfo1, c.ageMs, seed,
+                                               c.lfoPhase) + 1.0f);
     case SRC_RANDOM:   return c.randomv;
     case SRC_NOTEAGE:  return clampf(c.ageMs / NOTEAGE_FULL_MS, 0.0f, 1.0f);
+    case SRC_PRESSURE: return c.pressure;
     default:           return 0.0f;
   }
 }
@@ -86,15 +93,18 @@ void modEvaluate(const ModContext &ctx,
   for (int i = 0; i < numRoutes; i++) {
     uint8_t s = routes[i].source;
     uint8_t d = routes[i].dest;
+    uint8_t g = routes[i].via;
     if (s >= NUM_SOURCES || d >= NUM_DESTS) continue;
+    if (g >= NUM_SOURCES) g = SRC_CONST;
     if (!have[s]) { cache[s] = sourceValue(s, ctx, lfo1, lfo2, seed); have[s] = true; }
-    out[d] += cache[s] * routes[i].depth;
+    if (!have[g]) { cache[g] = sourceValue(g, ctx, lfo1, lfo2, seed); have[g] = true; }
+    out[d] += cache[s] * cache[g] * routes[i].depth;
   }
 }
 
 static const char *SRC_NAMES[NUM_SOURCES] = {
   "const", "velocity", "keytrack", "ampenv", "filtenv",
-  "lfo1", "lfo2", "lfo1uni", "random", "noteage"
+  "lfo1", "lfo2", "lfo1uni", "random", "noteage", "pressure"
 };
 static const char *DST_NAMES[NUM_DESTS] = {
   "pitch", "detune", "cutoff", "amp", "pwm", "res", "oscB"
