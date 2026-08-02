@@ -32,14 +32,16 @@ static const ModRoute R_FLUTE[] = {
   { SRC_VELOCITY, DST_CUTOFF,   5.0f },
 };
 
-// Theremin: the player's other hand controls VOLUME, continuously. Pressure
-// is that hand. SRC_CONST pulls the floor down so pressure has room to push
-// back up: 0.45 gain at rest, 1.0 fully depressed.
+// Theremin: the player's other hand controls VOLUME, continuously, all the
+// way down to silence. SRC_CONST pulls the gain floor to ZERO and pressure
+// pushes it back up, so amplitude is nothing but key position. Combined with
+// GESTURE_CONTINUOUS (velocity ignored, absolute depth mapping) a hard strike
+// and a slow one produce exactly the same sound — the difference lives
+// entirely in where you hold your finger afterwards.
 static const ModRoute R_THEREMIN[] = {
   { SRC_LFO1,     DST_PITCH,  45.0f },
-  { SRC_CONST,    DST_AMP,    -0.55f },
-  { SRC_PRESSURE, DST_AMP,     0.55f },
-  { SRC_PRESSURE, DST_CUTOFF,  4.0f  },
+  { SRC_CONST,    DST_AMP,    -1.00f },
+  { SRC_PRESSURE, DST_AMP,     1.00f },
 };
 
 // Airy: vibrato plus a slow wobble in the second oscillator's level, so the
@@ -126,7 +128,7 @@ const Preset PRESET[] = {
    140,  1e9f,  320, 0.90,   10.0, 10.0,  400, 0.70,
     1.00, 0.00, 0.00,
     { 5.8f, LFO_SINE, 0.0f, 400.0f }, LFO_OFF, NROUTES(R_THEREMIN),
-    0.00, 0.45, 0.00,   0,   0.00 },
+    0.00, 0.45, 0.00,   0,   0.00,   GESTURE_CONTINUOUS },
 
 { "airy",    WAVEFORM_SINE,     WAVEFORM_TRIANGLE,  12,  6.0, 0.18,
    110,  1e9f,  300, 0.85,    8.0,  8.0,  400, 0.70,

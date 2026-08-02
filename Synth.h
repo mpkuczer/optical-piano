@@ -33,6 +33,7 @@ void  presetList();
 void  presetDumpRoutes();   // what the flashed firmware actually contains
 void  presetAnnounce();
 int   presetCurrent();
+uint8_t presetGesture();    // GESTURE_STRUCK or GESTURE_CONTINUOUS
 
 void synthPressureTest();   // sweep pressure 0->1->0 with no scanner
 void synthReportLoad();                             // CPU and block usage

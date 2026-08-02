@@ -242,7 +242,14 @@ void synthNoteOn(int row, int col, int velocity) {
   int i = row * 5 + col;
   float v = velocity / 127.0f;
   const Preset &p = PRESET[currentPreset];
-  float amp = (0.06f + 0.84f * powf(v, 1.4f)) * p.ampScale;
+  // In continuous mode the strike carries no information: loudness is key
+  // POSITION, delivered later through pressure. Baking velocity into the
+  // amplitude here is exactly what made a hard strike leave a loud floor
+  // that leaning out could never get below.
+  bool cont = (p.gesture == GESTURE_CONTINUOUS);
+  if (cont) v = 0.5f;
+  float amp = cont ? p.ampScale
+                   : (0.06f + 0.84f * powf(v, 1.4f)) * p.ampScale;
 
   // Detune split symmetrically so perceived pitch stays put.
   float half = p.cents * 0.5f;
@@ -264,7 +271,10 @@ void synthNoteOn(int row, int col, int velocity) {
   voiceRand[i]     = nextRandomBipolar();
   voiceSeed[i]     = rngState;
   voiceResBase[i]  = p.res;
-  voicePress[i]    = 0.0f;
+  // Continuous voices keep whatever pressure the scanner has already
+  // reported, so the note opens from the key's real position instead of
+  // jumping up from zero.
+  if (!cont) voicePress[i] = 0.0f;
   voiceReleased[i] = false;
   voiceRelease[i]  = p.r;
   // Golden-ratio stride: 25 voices spread almost perfectly evenly around the
@@ -291,7 +301,10 @@ void synthNoteOn(int row, int col, int velocity) {
   oscB[i].pulseWidth(0.5f);
   vfilt[i].resonance(p.res);
   vfilt[i].frequency(peak);
-  env[i].attack(p.a);
+  // A continuous instrument must not have an attack shape of its own: any
+  // ramp here is a second, competing amplitude envelope layered under the one
+  // your finger is drawing.
+  env[i].attack(cont ? 1.0f : p.a);
   env[i].hold(0.0f);
   env[i].decay(0.0f);
   env[i].sustain(1.0f);
@@ -419,7 +432,10 @@ void presetDumpRoutes() {
   const Preset &q = PRESET[currentPreset];
   Serial.print("# routes for preset "); Serial.print(currentPreset);
   Serial.print(" '"); Serial.print(q.name); Serial.print("' (");
-  Serial.print(q.nRoutes); Serial.println(" routes)");
+  Serial.print(q.nRoutes); Serial.print(" routes, gesture ");
+  Serial.println(q.gesture == GESTURE_CONTINUOUS
+                 ? "CONTINUOUS — velocity ignored, absolute key position"
+                 : "STRUCK — velocity sets loudness, pressure is relative");
   if (q.nRoutes == 0 || q.routes == nullptr) {
     Serial.println("#   (none)");
     return;
@@ -503,6 +519,8 @@ void synthPressureTest() {
   synthNoteOff(2, 2, 0.5f);
   Serial.println("# sweep done. Did the sound move?");
 }
+
+uint8_t presetGesture() { return PRESET[currentPreset].gesture; }
 
 void synthReportLoad() {
   Serial.print("# audio CPU now="); Serial.print(AudioProcessorUsage(), 1);

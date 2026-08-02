@@ -14,6 +14,8 @@ void scannerScanOnce();   // one full sweep of all five columns
 
 void scannerIsolationSnapshot();  // print all 25 cells, one row per line
 void scannerSettleProbe();        // print the settling curve of one cell
-void scannerPressureReport();     // learned window for every key
+void scannerTraceToggle();        // live pressure trace WITHOUT muting the
+                                  //   instrument — scanning and sound carry on
+void scannerPressureReport();     // learned width for every key
 void scannerPressureMonitor();    // live depth of a held key — is there any
                                   //   travel left after the note fires?

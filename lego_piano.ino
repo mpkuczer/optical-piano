@@ -20,7 +20,8 @@
 //   b     recalibrate (hands off the keys)
 //   r     reset learned spans    a       audio CPU and memory
 //   i     isolation snapshot     s       settle probe
-//   m     pressure monitor       (raw depth only — does NOT learn)
+//   t     live pressure trace    (keeps playing — use this one)
+//   m     pressure monitor       (blocking, silent, raw depth only)
 //   w     per-key pressure windows (which keys respond well)
 //   P     pressure sweep test   (scanner bypassed; isolates synth vs scanner)
 //   q     idle (stop scanning — useful when chasing noise)
@@ -104,6 +105,7 @@ static void handleCommand(char ch) {
     case 'a': synthReportLoad();                            break;
     case 'i': scannerIsolationSnapshot();                   break;
     case 's': scannerSettleProbe();                         break;
+    case 't': scannerTraceToggle();                         break;
     case 'm': scannerPressureMonitor();                     break;
     case 'w': scannerPressureReport();                      break;
     case 'P': synthPressureTest();                          break;

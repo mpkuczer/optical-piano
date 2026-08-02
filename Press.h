@@ -1,84 +1,80 @@
 // ============================================================================
 // Press.h — turning key depth into 0..1 pressure
 // ============================================================================
-// Split out of Scanner.cpp for one reason: it can be tested. Pressure has now
-// been wrong three times, and every failure was a unit/range error that a
-// desktop assertion would have caught in a second — the same lesson
-// ModMatrix.h records. Like ModMatrix, this file has NO Arduino dependencies
-// and compiles with plain g++.
+// Arduino-free on purpose, like ModMatrix: test_press.cpp exercises it with
+// plain g++. Pressure has been wrong several times and every failure was a
+// range error visible on a desktop in milliseconds.
 //
-// THE PROBLEM
-//   Depth is a fraction of the key's learned span. A key at rest reads ~0,
-//   fully pressed reads ~1.0 (sometimes above, since span is the average
-//   press and not the mechanical stop). Pressure is not that number. Pressure
-//   is where you sit inside the SMALL region the key still travels after it
-//   has already bottomed out — measured at ~0.03 to 0.06 of span on this
-//   instrument, i.e. under 200 ADC counts out of 4096.
+// THE KEY IDEA
+//   How deep a key lands when struck, and how hard you then lean on it, are
+//   the SAME physical quantity. So a per-key window of absolute depths cannot
+//   separate them: strike a little deeper than usual and the "window" learns
+//   that as lean, widening until leaning moves nothing.
 //
-//   So the window has to be learned per key, and learning it means answering
-//   one question correctly: which samples belong to the hold, and which
-//   belong to the strike or the release? Getting that wrong doesn't produce
-//   a subtly poor result. It produces a window covering the whole travel, and
-//   pressure that never moves more than a few percent while you lean.
+//   Instead, each NOTE establishes its own zero — the depth at which the key
+//   comes to rest after the strike — and only the WIDTH of the lean is
+//   learned per key. Pressure is (depth - this note's rest) / learned width.
+//   Strike depth then cancels out by construction, and the learned quantity
+//   is bounded by heldBand, so it cannot run away.
 //
-// THE RULE
-//   A sample counts toward the held window only if it is within HELD_BAND of
-//   the deepest point reached so far. When the maximum grows, any minimum
-//   that has fallen outside the band is discarded. That single rule excludes
-//   the strike ramp (the max keeps growing, so stale minima keep being
-//   dropped) and the release ramp (depth falls outside the band, so it is
-//   never recorded) without needing to know which phase we are in.
+//   "At rest" means the key has stopped moving, not that it is deep. At a
+//   1.2 ms scan rate the approach is a smooth ramp and depth alone cannot
+//   distinguish "descending through 1.20" from "resting at 1.20".
 // ============================================================================
 #pragma once
 
+// How depth becomes pressure.
+enum PressMode : unsigned char {
+  PRESS_RELATIVE = 0,  // struck instruments: each note's own resting depth is
+                       //   its zero, so pressure means "past where I landed".
+                       //   Has memory by design.
+  PRESS_ABSOLUTE       // continuous instruments: pressure is a pure function
+                       //   of where the key is RIGHT NOW. No per-note zero, no
+                       //   learned width, no memory of the strike at all.
+};
+
 struct PressConfig {
   float settleMs;   // ignore everything this soon after the strike
-  float heldBand;   // how far below the deepest point still counts as "held"
-  float minRange;   // learned windows narrower than this report zero, rather
-                    //   than amplifying ADC noise into imaginary expression
-  float stillRate;  // depth units per SECOND below which the key counts as
-                    //   stationary. The hold is defined by the key having
-                    //   stopped, not by how deep it is: at a 1.2 ms scan rate
-                    //   the approach is a smooth ramp, and depth alone cannot
-                    //   tell "descending through 1.20" from "resting at 1.20".
-  float velTauMs;   // smoothing on the velocity estimate
+  float heldBand;   // hard cap on the learned width. A lean is small; if we
+                    //   ever measure more than this, it was not a lean.
+  float minRange;   // widths under this report zero rather than amplifying
+                    //   ADC noise into imaginary expression
   float tauMs;      // output smoothing time constant. NOT a per-sample
-                    //   coefficient: the scan rate varies with build options,
-                    //   and a per-sample coefficient silently changes the feel
-                    //   when it does.
-  float openRate;   // learning rate when the window WIDENS
-  float closeRate;  // ...and when it narrows. Deliberately much slower, so a
-                    //   few notes played without leaning don't erase it.
+                    //   coefficient — the scan rate changes with build
+                    //   options and that would silently change the feel.
+  float learnRate;  // symmetric. Asymmetric rates were tried and ratchet:
+                    //   whichever end learns faster wins and the width grows
+                    //   without bound.
+  float stillRate;  // depth units per SECOND below which the key is "resting"
+  float velTauMs;   // smoothing on the velocity estimate
+  // --- absolute mode only ---
+  float absLo;      // depth that reads as 0 (above the resting noise floor)
+  float absHi;      // depth that reads as 1 (short of the mechanical stop)
+  float absTauMs;   // shorter: a continuous instrument must feel immediate
 };
 
 extern const PressConfig PRESS_DEFAULT;
 
 struct PressState {
-  float ref, top;    // learned held window
+  float width;       // learned lean width for this key
   bool  learned;
-  bool  borrowed;    // window came from a neighbouring key, not from this
-                     //   one's own notes. Lets an untouched key respond on
-                     //   its FIRST note instead of needing two or three to
-                     //   warm up — and is overwritten outright, not averaged
-                     //   into, as soon as this key has real data.
-  float noteMin, noteMax;
-  float vel;         // depth units per second, smoothed
-  float lastDepth;
+  bool  borrowed;    // width came from another key, so an untouched key can
+                     //   respond on its first note. Replaced outright, never
+                     //   averaged into, once this key has its own data.
+  float noteRest;    // THIS note's zero point
+  float noteMax;     // deepest point this note reached
+  bool  haveRest;
+  float vel, lastDepth;
   bool  haveLast;
   float value;       // smoothed 0..1 output
+  unsigned char mode;
 };
 
 void  pressInit(PressState &s);
 void  pressNoteOn(PressState &s);
-
-// Feed one depth sample. ageMs is time since note on. Returns 0..1 pressure.
 float pressUpdate(PressState &s, const PressConfig &c,
                   float depth, float ageMs, float dtMs);
-
-// Fold this note's observed window into the learned one.
 void  pressNoteOff(PressState &s, const PressConfig &c);
-
 float pressRange(const PressState &s);
-
-// Adopt another key's window provisionally.
-void pressSeedFrom(PressState &s, float ref, float top);
+void  pressSeedFrom(PressState &s, float width);
+void  pressSetMode(PressState &s, unsigned char mode);

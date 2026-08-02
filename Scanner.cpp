@@ -24,6 +24,7 @@
 // ============================================================================
 #include <Arduino.h>
 #include "Config.h"
+#include "Preset.h"
 #include "Press.h"
 #include "Scanner.h"
 #include "Synth.h"
@@ -45,8 +46,9 @@ struct Key {
   bool     have_prev;
   float    press;         // 0..1 mapped, smoothed
   float    rise_spans_s;  // smoothed upward speed, spans per second
-  PressState pressure;    // learned held window — see Press.h, tested by
+  PressState pressure;    // learned lean width — see Press.h, tested by
                           //   test_press.cpp against real captured traces
+  float    disp_depth;    // last depth computed, for the live trace
 };
 
 static Key key[5][5];
@@ -190,17 +192,17 @@ static float crossingTime(uint16_t pv, uint32_t pu,
 // sensor alignment and how much give each hinge has all differ — so this is
 // only a starting point, replaced by a key's own first note.
 static void seedUnlearnedKeys() {
-  float sr = 0.0f, st = 0.0f;
+  float sw = 0.0f;
   int n = 0;
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const PressState &p = key[r][c].pressure;
-      if (p.learned && !p.borrowed) { sr += p.ref; st += p.top; n++; }
+      if (p.learned && !p.borrowed) { sw += p.width; n++; }
     }
   if (n == 0) return;
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++)
-      pressSeedFrom(key[r][c].pressure, sr / n, st / n);
+      pressSeedFrom(key[r][c].pressure, sw / n);
 }
 
 // ---- per-key state machine ----------------------------------------------
@@ -232,6 +234,15 @@ static void feed(int r, int c, uint16_t v) {
         if (fl < 0) fl = 0;
         int vel = velocityFromFlight(fl);
 
+        if (presetGesture() == GESTURE_CONTINUOUS) {
+          // Establish position BEFORE the note starts, or the voice opens at
+          // zero and swells for no musical reason.
+          pressSetMode(k.pressure, PRESS_ABSOLUTE);
+          k.disp_depth = depthOf(k, v);
+          k.press = pressUpdate(k.pressure, PRESS_DEFAULT,
+                                k.disp_depth, 0.0f, 1000.0f);
+          synthPressure(r, c, k.press);
+        }
         synthNoteOn(r, c, vel);
 #if SEND_USB_MIDI
         usbMIDI.sendNoteOn(MIDI_NOTE[r][c], vel, 1);
@@ -245,6 +256,11 @@ static void feed(int r, int c, uint16_t v) {
         k.note_on = now_us;
         k.rel_armed = false; k.above_off = false;
         pressNoteOn(k.pressure);
+        // The preset decides how this key should be read. Chosen per note, so
+        // switching patch mid-performance takes effect on the next note.
+        pressSetMode(k.pressure,
+                     presetGesture() == GESTURE_CONTINUOUS ? PRESS_ABSOLUTE
+                                                           : PRESS_RELATIVE);
         k.state = 2;
       } else if (v > k.vel_lv + RETREAT_HYST) {
         k.state = 0;      // half-press, withdrawn
@@ -260,8 +276,9 @@ static void feed(int r, int c, uint16_t v) {
       {
         float dt_ms  = k.have_prev ? (now_us - k.prev_us) * 0.001f : 1.2f;
         float age_ms = (now_us - k.note_on) * 0.001f;
+        k.disp_depth = depthOf(k, v);
         k.press = pressUpdate(k.pressure, PRESS_DEFAULT,
-                              depthOf(k, v), age_ms, dt_ms);
+                              k.disp_depth, age_ms, dt_ms);
         synthPressure(r, c, k.press);
       }
 
@@ -298,13 +315,13 @@ static void feed(int r, int c, uint16_t v) {
           // The learned window, printed on the REAL path. The 'm' monitor
           // cannot show this: it reads the ADC directly and never runs the
           // note state machine, so it always displayed an unlearned zero.
-          Serial.print("  note[min="); Serial.print(k.pressure.noteMin, 3);
-          Serial.print(" max=");       Serial.print(k.pressure.noteMax, 3);
-          Serial.print("]  window[ref=");
-          Serial.print(k.pressure.ref, 3);
-          Serial.print(" top=");       Serial.print(k.pressure.top, 3);
-          Serial.print(" range=");     Serial.print(pressRange(k.pressure), 4);
-          Serial.println(k.pressure.learned ? "]" : "]  NOT LEARNED");
+          Serial.print("  note[rest="); Serial.print(k.pressure.noteRest, 3);
+          Serial.print(" max=");        Serial.print(k.pressure.noteMax, 3);
+          Serial.print(" lean=");
+          Serial.print(k.pressure.haveRest
+                       ? k.pressure.noteMax - k.pressure.noteRest : 0.0f, 3);
+          Serial.print("]  width=");    Serial.print(pressRange(k.pressure), 4);
+          Serial.println(k.pressure.learned ? "" : "  NOT LEARNED");
 #endif
           // Learn this key's travel. Note the EMA: the old version only ever
           // GREW span, so one bottomed-out press permanently deepened every
@@ -315,8 +332,10 @@ static void feed(int r, int c, uint16_t v) {
             k.span = (uint16_t)(0.9f * k.span + 0.1f * obs);
             deriveThresholds(k);
           }
-          pressNoteOff(k.pressure, PRESS_DEFAULT);
-          seedUnlearnedKeys();   // every key learned makes the rest usable
+          if (k.pressure.mode != PRESS_ABSOLUTE) {
+            pressNoteOff(k.pressure, PRESS_DEFAULT);
+            seedUnlearnedKeys();  // every key learned makes the rest usable
+          }
           k.press = 0.0f;
           k.rise_spans_s = 0.0f;
           k.state = 0;
@@ -338,14 +357,14 @@ static void feed(int r, int c, uint16_t v) {
 // which ones and by how much, instead of leaving it to feel.
 void scannerPressureReport() {
   Serial.println("# per-key pressure windows");
-  Serial.println("#  key   ref     top    range   counts  state");
+  Serial.println("#  key   width   counts  state");
+  Serial.println("#  (width is the lean this key has shown, as a fraction of");
+  Serial.println("#   its span; counts is that in raw ADC units)");
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const Key &k = key[r][c];
       float rng = pressRange(k.pressure);
       Serial.print("#  s");    Serial.print(r * 5 + c + 1);
-      Serial.print("\t");     Serial.print(k.pressure.ref, 3);
-      Serial.print("\t");     Serial.print(k.pressure.top, 3);
       Serial.print("\t");     Serial.print(rng, 4);
       Serial.print("\t");     Serial.print((int)(rng * k.span));
       if (!k.pressure.learned)      Serial.println("\tnever played");
@@ -363,7 +382,7 @@ void scannerPressureMonitor() {
   Serial.println("# Watch 'depth'. If it does not move when you lean, the key");
   Serial.println("# has bottomed out and pressure is a hardware problem.");
   Serial.println("# Send any character to stop.");
-  Serial.println("#  key\tbase\tspan\tdepth\thMin\thMax\trange\tref\tmax\tpress");
+  Serial.println("#  key\tbase\tspan\tdepth\thMin\thMax\trange\twidth\tlearned");
 
   float dmin[5][5], dmax[5][5];
   uint32_t downSince[5][5];
@@ -408,9 +427,8 @@ void scannerPressureMonitor() {
     Serial.print("\t");     Serial.print(lo < 9.0f ? lo : 0.0f, 3);
     Serial.print("\t");     Serial.print(hi, 3);
     Serial.print("\t");     Serial.print(range, 3);
-    Serial.print("\t");     Serial.print(k.pressure.ref, 3);
-    Serial.print("\t");     Serial.print(k.pressure.top, 3);
-    Serial.print("\t");     Serial.print(pressRange(k.pressure), 3);
+    Serial.print("\t");     Serial.print(k.pressure.width, 4);
+    Serial.print("\t");     Serial.print(k.pressure.learned ? "y" : "n");
     Serial.print("  ");
     // Crude bar so the motion is visible without reading numbers.
     int bars = (int)(bd * 40.0f);
@@ -432,6 +450,58 @@ void scannerPressureMonitor() {
       }
 }
 
+// ---- live trace ----------------------------------------------------------
+// Unlike the 'm' monitor, this does NOT take over the loop. It piggybacks on
+// normal scanning, so notes sound, the state machine runs and the learner
+// learns while you watch. That combination is what was missing: every earlier
+// diagnostic forced a choice between hearing the instrument and seeing the
+// numbers, which is exactly the wrong trade when the question is whether the
+// numbers match the sound.
+static bool     traceOn   = false;
+static uint32_t traceNext = 0;
+
+void scannerTraceToggle() {
+  traceOn = !traceOn;
+  if (traceOn) {
+    Serial.println("# trace ON — play and lean, sound keeps running");
+    Serial.println("#  key  depth   rest   lean   width  press  mode");
+  } else {
+    Serial.println("# trace off");
+  }
+}
+
+static void serviceTrace() {
+  if (!traceOn) return;
+  uint32_t now = millis();
+  if (now < traceNext) return;
+
+  // Follow the most recently struck key that is still sounding.
+  int br = -1, bc = -1;
+  uint32_t newest = 0;
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++)
+      if (key[r][c].state == 2 && key[r][c].note_on >= newest) {
+        newest = key[r][c].note_on; br = r; bc = c;
+      }
+  if (br < 0) return;                 // nothing held: stay quiet
+  traceNext = now + 40;               // 25 Hz is plenty to see a lean
+
+  const Key &k = key[br][bc];
+  const PressState &p = k.pressure;
+  float lean = p.haveRest ? (p.noteMax - p.noteRest) : 0.0f;
+
+  Serial.print("#  s");  Serial.print(br * 5 + bc + 1);
+  Serial.print("\t");   Serial.print(k.disp_depth, 3);
+  Serial.print("\t");   Serial.print(p.haveRest ? p.noteRest : 0.0f, 3);
+  Serial.print("\t");   Serial.print(lean, 3);
+  Serial.print("\t");   Serial.print(pressRange(p), 4);
+  Serial.print("\t");   Serial.print(k.press, 2);
+  Serial.print(p.mode == PRESS_ABSOLUTE ? " abs" : (p.learned ? " rel" : " ?"));
+  int bars = (int)(k.press * 30.0f);
+  for (int i = 0; i < bars; i++) Serial.print('#');
+  Serial.println();
+}
+
 // ---- one sweep -----------------------------------------------------------
 void scannerScanOnce() {
   for (int c = 0; c < SWEEP_COLS; c++) {
@@ -443,4 +513,5 @@ void scannerScanOnce() {
       delayMicroseconds(SETTLE_US);
     }
   }
+  serviceTrace();
 }
