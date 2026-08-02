@@ -24,7 +24,7 @@ static float clampf(float v, float lo, float hi) {
 }
 
 void pressInit(PressState &s) {
-  s.ref = 0.0f; s.top = 0.0f; s.learned = false;
+  s.ref = 0.0f; s.top = 0.0f; s.learned = false; s.borrowed = false;
   s.noteMin = NO_MIN; s.noteMax = 0.0f; s.value = 0.0f;
   s.vel = 0.0f; s.lastDepth = 0.0f; s.haveLast = false;
 }
@@ -79,10 +79,12 @@ float pressUpdate(PressState &s, const PressConfig &c,
 
 void pressNoteOff(PressState &s, const PressConfig &c) {
   if (s.noteMax > 0.0f && s.noteMin < NO_MIN) {
-    if (!s.learned) {
-      // No seed guess survives contact with real hardware — two attempts
-      // proved that — so the first note sets the window outright.
-      s.ref = s.noteMin; s.top = s.noteMax; s.learned = true;
+    if (!s.learned || s.borrowed) {
+      // No fixed seed survives contact with real hardware — two attempts
+      // proved that — so this key's own first note sets the window outright,
+      // replacing any window borrowed from a neighbour.
+      s.ref = s.noteMin; s.top = s.noteMax;
+      s.learned = true; s.borrowed = false;
     } else {
       s.ref += (s.noteMin < s.ref ? c.openRate : c.closeRate)
                * (s.noteMin - s.ref);
@@ -91,4 +93,11 @@ void pressNoteOff(PressState &s, const PressConfig &c) {
     }
   }
   s.value = 0.0f;
+}
+
+void pressSeedFrom(PressState &s, float ref, float top) {
+  if (s.learned && !s.borrowed) return;      // never override real data
+  if (top - ref < PRESS_DEFAULT.minRange) return;
+  s.ref = ref; s.top = top;
+  s.learned = true; s.borrowed = true;
 }

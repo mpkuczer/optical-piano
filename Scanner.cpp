@@ -186,6 +186,23 @@ static float crossingTime(uint16_t pv, uint32_t pu,
   return (float)pu + fr * (float)(cu - pu);
 }
 
+// Average window across keys that have taught themselves. Keys vary — travel,
+// sensor alignment and how much give each hinge has all differ — so this is
+// only a starting point, replaced by a key's own first note.
+static void seedUnlearnedKeys() {
+  float sr = 0.0f, st = 0.0f;
+  int n = 0;
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) {
+      const PressState &p = key[r][c].pressure;
+      if (p.learned && !p.borrowed) { sr += p.ref; st += p.top; n++; }
+    }
+  if (n == 0) return;
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++)
+      pressSeedFrom(key[r][c].pressure, sr / n, st / n);
+}
+
 // ---- per-key state machine ----------------------------------------------
 static void feed(int r, int c, uint16_t v) {
   Key &k = key[r][c];
@@ -299,6 +316,7 @@ static void feed(int r, int c, uint16_t v) {
             deriveThresholds(k);
           }
           pressNoteOff(k.pressure, PRESS_DEFAULT);
+          seedUnlearnedKeys();   // every key learned makes the rest usable
           k.press = 0.0f;
           k.rise_spans_s = 0.0f;
           k.state = 0;
@@ -315,6 +333,28 @@ static void feed(int r, int c, uint16_t v) {
 // find out whether your key mechanism HAS any travel left after the note
 // fires — no amount of firmware can invent range that the hardware doesn't
 // produce. Hold a key down and lean on it; watch whether depth moves.
+// Which keys have a usable pressure window, and how wide. Keys differ
+// mechanically, so some will always respond better than others; this shows
+// which ones and by how much, instead of leaving it to feel.
+void scannerPressureReport() {
+  Serial.println("# per-key pressure windows");
+  Serial.println("#  key   ref     top    range   counts  state");
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) {
+      const Key &k = key[r][c];
+      float rng = pressRange(k.pressure);
+      Serial.print("#  s");    Serial.print(r * 5 + c + 1);
+      Serial.print("\t");     Serial.print(k.pressure.ref, 3);
+      Serial.print("\t");     Serial.print(k.pressure.top, 3);
+      Serial.print("\t");     Serial.print(rng, 4);
+      Serial.print("\t");     Serial.print((int)(rng * k.span));
+      if (!k.pressure.learned)      Serial.println("\tnever played");
+      else if (k.pressure.borrowed) Serial.println("\tborrowed");
+      else if (rng < 0.025f)        Serial.println("\town - NARROW, will feel coarse");
+      else                          Serial.println("\town");
+    }
+}
+
 void scannerPressureMonitor() {
   Serial.println("# pressure monitor: RAW DEPTH ONLY. This does not run the");
   Serial.println("# note state machine, so ref/top stay zero until you have");

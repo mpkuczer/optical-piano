@@ -174,6 +174,22 @@ int main() {
 
   for (int counts : {1, 2, 4, 8}) noiseSuite(counts);
 
+  printf("\nborrowed window — a key that has never been played\n");
+  {
+    PressState taught; pressInit(taught);
+    replay(taught, S16, 60.0f, false);        // teach one key
+    PressState fresh; pressInit(fresh);
+    pressSeedFrom(fresh, taught.ref, taught.top);
+    Result r = replay(fresh, S16, 60.0f, true);
+    char buf[160];
+    snprintf(buf, sizeof buf, "borrowed [%.3f,%.3f] -> pressure %.2f..%.2f, "
+             "own window after one note [%.3f,%.3f]",
+             taught.ref, taught.top, r.lo, r.hi, fresh.ref, fresh.top);
+    check(r.hi - r.lo > 0.35f, "responds on its very FIRST note", buf);
+    check(!fresh.borrowed, "first real note replaces the borrowed window", buf);
+    check(fresh.ref > 1.0f, "own data, not an average with the neighbour", buf);
+  }
+
   printf("\nflat hold — no lean at all\n");
   {
     PressState s; pressInit(s);

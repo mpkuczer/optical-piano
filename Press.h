@@ -56,6 +56,11 @@ extern const PressConfig PRESS_DEFAULT;
 struct PressState {
   float ref, top;    // learned held window
   bool  learned;
+  bool  borrowed;    // window came from a neighbouring key, not from this
+                     //   one's own notes. Lets an untouched key respond on
+                     //   its FIRST note instead of needing two or three to
+                     //   warm up — and is overwritten outright, not averaged
+                     //   into, as soon as this key has real data.
   float noteMin, noteMax;
   float vel;         // depth units per second, smoothed
   float lastDepth;
@@ -74,3 +79,6 @@ float pressUpdate(PressState &s, const PressConfig &c,
 void  pressNoteOff(PressState &s, const PressConfig &c);
 
 float pressRange(const PressState &s);
+
+// Adopt another key's window provisionally.
+void pressSeedFrom(PressState &s, float ref, float top);

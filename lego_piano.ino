@@ -21,6 +21,7 @@
 //   r     reset learned spans    a       audio CPU and memory
 //   i     isolation snapshot     s       settle probe
 //   m     pressure monitor       (raw depth only — does NOT learn)
+//   w     per-key pressure windows (which keys respond well)
 //   P     pressure sweep test   (scanner bypassed; isolates synth vs scanner)
 //   q     idle (stop scanning — useful when chasing noise)
 //
@@ -104,6 +105,7 @@ static void handleCommand(char ch) {
     case 'i': scannerIsolationSnapshot();                   break;
     case 's': scannerSettleProbe();                         break;
     case 'm': scannerPressureMonitor();                     break;
+    case 'w': scannerPressureReport();                      break;
     case 'P': synthPressureTest();                          break;
     case 'q': idle = !idle;
               Serial.println(idle ? "# idle (scanning stopped)"
