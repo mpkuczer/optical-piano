@@ -30,6 +30,7 @@ bool synthVoiceIdle(int row, int col);
 
 void  presetSelect(int index);
 void  presetList();
+void  presetDumpRoutes();   // what the flashed firmware actually contains
 void  presetAnnounce();
 int   presetCurrent();
 

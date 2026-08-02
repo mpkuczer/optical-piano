@@ -411,6 +411,35 @@ void presetAnnounce() {
   Serial.print(": "); Serial.println(PRESET[currentPreset].name);
 }
 
+// Print the ACTIVE preset's modulation routes. Until now there has been no
+// way to confirm from the board that the firmware you flashed actually
+// contains pressure routing — if Presets.cpp was not updated along with
+// everything else, pressure works perfectly and moves nothing.
+void presetDumpRoutes() {
+  const Preset &q = PRESET[currentPreset];
+  Serial.print("# routes for preset "); Serial.print(currentPreset);
+  Serial.print(" '"); Serial.print(q.name); Serial.print("' (");
+  Serial.print(q.nRoutes); Serial.println(" routes)");
+  if (q.nRoutes == 0 || q.routes == nullptr) {
+    Serial.println("#   (none)");
+    return;
+  }
+  bool hasPress = false;
+  for (int k = 0; k < q.nRoutes; k++) {
+    const ModRoute &m = q.routes[k];
+    Serial.print("#   "); Serial.print(modSourceName(m.source));
+    Serial.print(" -> ");  Serial.print(modDestName(m.dest));
+    Serial.print("  depth "); Serial.print(m.depth, 2);
+    if (m.via != SRC_CONST) {
+      Serial.print("  via "); Serial.print(modSourceName(m.via));
+    }
+    Serial.println();
+    if (m.source == SRC_PRESSURE || m.via == SRC_PRESSURE) hasPress = true;
+  }
+  Serial.println(hasPress ? "#   -> pressure IS routed in this preset"
+                          : "#   -> NO pressure route: nothing here can move");
+}
+
 void presetList() {
   Serial.println("# presets:");
   for (int i = 0; i < PRESET_COUNT; i++) {

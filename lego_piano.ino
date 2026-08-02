@@ -16,7 +16,8 @@
 //
 // SERIAL COMMANDS
 //   0-9   select preset          n / p   next / previous preset
-//   l     list presets           b       recalibrate (hands off the keys)
+//   l     list presets           R       dump active preset's mod routes
+//   b     recalibrate (hands off the keys)
 //   r     reset learned spans    a       audio CPU and memory
 //   i     isolation snapshot     s       settle probe
 //   m     pressure monitor       (raw depth only — does NOT learn)
@@ -95,6 +96,7 @@ static void handleCommand(char ch) {
     case 'n': selectPresetAndAudition(presetCurrent() + 1); break;
     case 'p': selectPresetAndAudition(presetCurrent() - 1); break;
     case 'l': presetList();                                 break;
+    case 'R': presetDumpRoutes();                           break;
     case 'b': Serial.println("# recalibrating, hands off the keys");
               scannerCalibrate();                           break;
     case 'r': scannerResetSpans();                          break;

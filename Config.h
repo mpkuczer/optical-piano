@@ -37,7 +37,16 @@ const int MIDI_NOTE[5][5] = {
 const int NUM_VOICES = 25;
 
 // ---- scan timing ---------------------------------------------------------
-const uint32_t SETTLE_US = 200;   // wait after selecting a column before reading
+// Measured with the 's' settle probe: the sense line needs ~320 us to reach
+// its final value. At the old 200 us it was still 23 counts high and falling
+// at 0.33 counts/us. That offset cancels for note detection (the baseline is
+// measured the same way) but not for pressure, where 23 counts is 16% of the
+// whole usable window — and it is not even constant, because the audio ISR
+// fires every 2.9 ms and stretches this delay when it lands inside it.
+// Sampling on the flat part makes that jitter disappear.
+// Cost: the sweep goes from ~1.25 ms to ~1.95 ms, so the scan rate drops from
+// roughly 800 Hz to 510 Hz. Velocity flight times get coarser; see below.
+const uint32_t SETTLE_US = 350;   // wait after selecting a column before reading
 const int      SWEEP_COLS = 5;
 
 // ---- detection thresholds (fractions of each key's learned span) ---------

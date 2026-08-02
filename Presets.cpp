@@ -102,6 +102,16 @@ static const ModRoute R_NASAL[] = {
   { SRC_VELOCITY, DST_CUTOFF, 8.0f },
 };
 
+// Deliberately unsubtle, for verifying the pressure path end to end. A
+// sawtooth (harmonics to filter), a cutoff low enough that moving it is
+// obvious, and a large amplitude swing. If leaning on a key does not
+// visibly change THIS, the fault is not in preset design.
+static const ModRoute R_PRESSTEST[] = {
+  { SRC_PRESSURE, DST_CUTOFF, 36.0f },   // three octaves of brightness
+  { SRC_CONST,    DST_AMP,    -0.60f },
+  { SRC_PRESSURE, DST_AMP,     0.60f },  // quiet -> full
+};
+
 // ---- the table -----------------------------------------------------------
 const Preset PRESET[] = {
 
@@ -189,6 +199,13 @@ const Preset PRESET[] = {
     0.10, 0.90, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_NASAL),
     0.20, 0.28, 0.20, 220,   0.25 },
+
+// ============================ DIAGNOSTIC ===================================
+{ "presstest", WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH, 0,  6.0, 1.00,
+     6,  1e9f,  200, 0.55,    2.0,  2.0,  400, 1.20,
+    1.00, 0.00, 0.00,
+    LFO_OFF, LFO_OFF, NROUTES(R_PRESSTEST),
+    0.00, 0.20, 0.00,   0,   0.00 },
 
 // ============================ REFERENCE ====================================
 // Single oscillator, no detune, static filter, no modulation, no effects.
