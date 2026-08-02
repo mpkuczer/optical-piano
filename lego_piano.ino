@@ -19,6 +19,7 @@
 //   l     list presets           b       recalibrate (hands off the keys)
 //   r     reset learned spans    a       audio CPU and memory
 //   i     isolation snapshot     s       settle probe
+//   m     pressure monitor       (hold a key and lean; any char stops)
 //   q     idle (stop scanning — useful when chasing noise)
 //
 // USB Type must be "Serial + MIDI".
@@ -99,6 +100,7 @@ static void handleCommand(char ch) {
     case 'a': synthReportLoad();                            break;
     case 'i': scannerIsolationSnapshot();                   break;
     case 's': scannerSettleProbe();                         break;
+    case 'm': scannerPressureMonitor();                     break;
     case 'q': idle = !idle;
               Serial.println(idle ? "# idle (scanning stopped)"
                                   : "# scanning");          break;

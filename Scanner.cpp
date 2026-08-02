@@ -42,8 +42,12 @@ struct Key {
   uint16_t prev_v;
   uint32_t prev_us;
   bool     have_prev;
-  float    press;         // 0..1 smoothed depth beyond PRESS_LO
+  float    press;         // 0..1 mapped, smoothed
   float    rise_spans_s;  // smoothed upward speed, spans per second
+  float    press_ref;     // learned depth of a normally-held key
+  float    press_max;     // learned deepest depth when leaning
+  float    note_maxdepth; // deepest depth during THIS note
+  bool     ref_taken;
 };
 
 static Key key[5][5];
@@ -110,6 +114,8 @@ void scannerCalibrate() {
       deriveThresholds(k);
       k.state = 0; k.rel_armed = false; k.above_off = false; k.have_prev = false;
       k.press = 0.0f; k.rise_spans_s = 0.0f;
+      k.press_ref = PRESS_SEED_REF; k.press_max = PRESS_SEED_MAX;
+      k.note_maxdepth = 0.0f; k.ref_taken = false;
       reportKey(r, c);
     }
 }
@@ -164,13 +170,22 @@ static float clampf(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Raw ADC level -> 0..1 pressure. Depth is measured from the key's own
-// baseline and scaled by its own learned span, so a key with a shallower
-// throw still reaches full pressure.
-static float pressureFromLevel(const Key &k, uint16_t v) {
+// Raw ADC level -> depth as a fraction of this key's learned span.
+static float depthOf(const Key &k, uint16_t v) {
   if (v >= k.baseline || k.span == 0) return 0.0f;
-  float depth = (float)(k.baseline - v) / (float)k.span;
-  return clampf((depth - PRESS_LO) / (PRESS_HI - PRESS_LO), 0.0f, 1.0f);
+  return (float)(k.baseline - v) / (float)k.span;
+}
+
+// Depth -> 0..1 pressure, using the range this key has actually shown it has.
+// The previous version measured against fixed fractions of `span`, which
+// cannot work: span is itself learned from the deepest press, so a full press
+// always lands at depth 1.0 and pressure pins at maximum the instant the key
+// bottoms. Measuring between "held normally" and "leaned on" is the only
+// framing that has any range in it.
+static float pressureOf(const Key &k, float depth) {
+  float range = k.press_max - k.press_ref;
+  if (range < PRESS_MIN_RANGE) return 0.0f;
+  return clampf((depth - k.press_ref) / range, 0.0f, 1.0f);
 }
 
 // Where between the previous sample and this one did the signal cross `th`?
@@ -226,6 +241,7 @@ static void feed(int r, int c, uint16_t v) {
 #endif
         k.note_on = now_us;
         k.rel_armed = false; k.above_off = false;
+        k.note_maxdepth = 0.0f; k.ref_taken = false;
         k.state = 2;
       } else if (v > k.vel_lv + RETREAT_HYST) {
         k.state = 0;      // half-press, withdrawn
@@ -238,8 +254,18 @@ static void feed(int r, int c, uint16_t v) {
       // The key is still under a finger and we still have a position
       // reading, so keep feeding it to the voice. This is the whole point of
       // an optical keybed: a MIDI keyboard would have thrown this away.
-      k.press += PRESS_SMOOTH * (pressureFromLevel(k, v) - k.press);
-      synthPressure(r, c, k.press);
+      {
+        float depth = depthOf(k, v);
+        if (depth > k.note_maxdepth) k.note_maxdepth = depth;
+        // Take the reference once the strike has settled — before that the
+        // key is still moving and the reading means nothing.
+        if (!k.ref_taken && (now_us - k.note_on) > PRESS_REF_US) {
+          k.press_ref += PRESS_LEARN * (depth - k.press_ref);
+          k.ref_taken = true;
+        }
+        k.press += PRESS_SMOOTH * (pressureOf(k, depth) - k.press);
+        synthPressure(r, c, k.press);
+      }
 
       // Smoothed upward speed, for release velocity. Only ascents count;
       // pressing further down must not read as a fast release.
@@ -272,11 +298,20 @@ static void feed(int r, int c, uint16_t v) {
           Serial.print("s"); Serial.print(r * 5 + c + 1);
           Serial.println(" OFF");
 #endif
-          // Learn this key's real travel so its thresholds fit it better.
+          // Learn this key's travel. Note the EMA: the old version only ever
+          // GREW span, so one bottomed-out press permanently deepened every
+          // threshold on that key — making it harder to trigger and quieter
+          // the harder you played it.
           if (k.note_low < k.baseline) {
             uint16_t obs = k.baseline - k.note_low;
-            if (obs > k.span + 50) { k.span = obs; deriveThresholds(k); }
+            k.span = (uint16_t)(0.9f * k.span + 0.1f * obs);
+            deriveThresholds(k);
           }
+          // Learn how deep this key goes when leaned on. If you never lean,
+          // press_max converges toward press_ref, the range collapses and
+          // pressure correctly reports zero rather than inventing motion.
+          if (k.note_maxdepth > 0.0f)
+            k.press_max += PRESS_LEARN * (k.note_maxdepth - k.press_max);
           k.press = 0.0f;
           k.rise_spans_s = 0.0f;
           k.state = 0;
@@ -287,6 +322,72 @@ static void feed(int r, int c, uint16_t v) {
   k.prev_v = v;
   k.prev_us = now_us;
   k.have_prev = true;
+}
+
+// Live view of one key's depth while you hold it. This is the only way to
+// find out whether your key mechanism HAS any travel left after the note
+// fires — no amount of firmware can invent range that the hardware doesn't
+// produce. Hold a key down and lean on it; watch whether depth moves.
+void scannerPressureMonitor() {
+  Serial.println("# pressure monitor. Hold ONE key down and lean on it.");
+  Serial.println("# Watch 'depth'. If it does not move when you lean, the key");
+  Serial.println("# has bottomed out and pressure is a hardware problem.");
+  Serial.println("# Send any character to stop.");
+  Serial.println("#  key   raw   base  span   depth   min   max   range  press");
+
+  float dmin[5][5], dmax[5][5];
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) { dmin[r][c] = 9.0f; dmax[r][c] = 0.0f; }
+
+  uint32_t nextPrint = 0;
+  while (!Serial.available()) {
+    int br = -1, bc = -1;
+    float bd = 0.10f;                 // ignore keys that are basically at rest
+    for (int c = 0; c < 5; c++) {
+      uint16_t v[5]; readColumn(c, v);
+      for (int r = 0; r < 5; r++) {
+        float d = depthOf(key[r][c], v[r]);
+        if (d > 0.10f) {
+          if (d < dmin[r][c]) dmin[r][c] = d;
+          if (d > dmax[r][c]) dmax[r][c] = d;
+        }
+        if (d > bd) { bd = d; br = r; bc = c; key[r][c].note_low = v[r]; }
+      }
+    }
+    if (br < 0 || millis() < nextPrint) continue;
+    nextPrint = millis() + 60;
+
+    Key &k = key[br][bc];
+    float lo = dmin[br][bc], hi = dmax[br][bc];
+    float range = (lo < 9.0f) ? hi - lo : 0.0f;
+    Serial.print("#  s");   Serial.print(br * 5 + bc + 1);
+    Serial.print("\t");     Serial.print(k.note_low);
+    Serial.print("\t");     Serial.print(k.baseline);
+    Serial.print("\t");     Serial.print(k.span);
+    Serial.print("\t");     Serial.print(bd, 3);
+    Serial.print("\t");     Serial.print(lo < 9.0f ? lo : 0.0f, 3);
+    Serial.print("\t");     Serial.print(hi, 3);
+    Serial.print("\t");     Serial.print(range, 3);
+    Serial.print("\t");     Serial.print(pressureOf(k, bd), 2);
+    Serial.print("  ");
+    // Crude bar so the motion is visible without reading numbers.
+    int bars = (int)(bd * 40.0f);
+    for (int i = 0; i < bars && i < 50; i++) Serial.print('#');
+    Serial.println();
+  }
+  while (Serial.available()) Serial.read();
+
+  Serial.println("# --- summary: observed depth range per key while held ---");
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++)
+      if (dmax[r][c] > 0.0f) {
+        float lo = dmin[r][c] < 9.0f ? dmin[r][c] : dmax[r][c];
+        float range = dmax[r][c] - lo;
+        Serial.print("#   s"); Serial.print(r * 5 + c + 1);
+        Serial.print("  range="); Serial.print(range, 3);
+        Serial.println(range < PRESS_MIN_RANGE
+                       ? "  <-- NO usable pressure travel" : "  ok");
+      }
 }
 
 // ---- one sweep -----------------------------------------------------------
