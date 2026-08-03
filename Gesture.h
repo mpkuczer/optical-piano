@@ -21,8 +21,22 @@
 //
 // THREE EXPRESSION SIGNALS, ALWAYS COMPUTED
 //   position  absolute, 0 at rest, 1 at this key's own bottom
-//   pressure  relative to where THIS note settled after its strike
+//   pressure  relative to where THIS note settled after its strike, scaled by
+//             the travel REMAINING below that point. Landing depth cancels,
+//             and the gain rises as the room runs out, which is what the
+//             finger is already feeling.
 //   strike    latched flight-time velocity
+//
+// CALIBRATION DESCRIBES THE HARDWARE, NEVER THE PLAYER.
+//   Pressure used to divide by a `width` learned per key from how far the
+//   player habitually leaned. That crossed the line: baseline and bottom
+//   model a sensor and a plastic key, and are properties of the instrument;
+//   a lean is a property of whoever is standing at it. It also failed on its
+//   own terms — the learned width was allowed down to the jitter floor, and
+//   it was seeded between KEYS, which cannot mean anything for a habit.
+//   Remaining travel is the same normalisation taken from geometry instead,
+//   with nothing accumulated across notes. `restPos` stays because it
+//   measures the note in progress; it is an observation, not a model of you.
 //
 // All three are cheap and all three are always available. Which of them a
 // sound uses is a routing decision in the patch, not a mode here. That is
@@ -51,9 +65,11 @@ struct GestureConfig {
   float settleMs;                 // ignore this long after the strike
   float stillRate;                // position units per second = "at rest"
   float velTauMs;
-  float heldBand;                 // cap on the learned lean width
-  float minWidth;
-  float widthLearn;
+  float heldBand;                 // how far past the rest point still counts
+                                  //   as a lean rather than a fresh descent
+  float minRoom;                  // floor on the remaining-travel divisor, so
+                                  //   a strike that bottoms the key on landing
+                                  //   cannot divide by ~zero
   float smoothTauMs;              // on pressure and position outputs
   // guards
   float retreatHyst;
@@ -96,8 +112,6 @@ struct GestureState {
   float   restPos;
   bool    haveRest;
   float   noteMaxPos;
-  float   width;
-  bool    widthLearned, widthBorrowed;
 };
 
 struct GestureEvent {
@@ -115,5 +129,3 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
                            uint8_t articulation, float position, float nowMs);
 
 bool  gestureIdle(const GestureState &g);
-void  gestureSeedWidth(GestureState &g, const GestureConfig &c, float width);
-float gestureWidth(const GestureState &g);

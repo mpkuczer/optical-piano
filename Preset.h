@@ -22,7 +22,10 @@ struct Preset {
   const char *name;
 
   // ---- oscillators -------------------------------------------------------
-  short waveA, waveB;   // WAVEFORM_SINE / TRIANGLE / SAWTOOTH / SQUARE / PULSE
+  short waveA, waveB;   // WAVEFORM_SINE / TRIANGLE / BANDLIMIT_SAWTOOTH /
+                        //   BANDLIMIT_SQUARE / BANDLIMIT_PULSE. Use the
+                        //   BANDLIMIT_ names for anything with a
+                        //   discontinuity — see the note above PRESET[].
   int   semiB;          // osc B pitch offset in semitones (-12 = octave down:
                         //   adds weight without adding brightness)
   float cents;          // detune between the two oscillators. THE RICHNESS

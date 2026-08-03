@@ -10,7 +10,7 @@
 
 void scannerBegin();
 void scannerCalibrate();          // learn resting levels — hands OFF the keys
-void scannerResetCalibration();   // forget learned travel and widths
+void scannerResetCalibration();   // forget learned travel
 void scannerScanOnce();           // one full sweep of all five columns
 void scannerAllNotesOff();        // silence everything (used on preset change)
 

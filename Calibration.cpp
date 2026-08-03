@@ -122,7 +122,7 @@ void calNoteEnded(CalKey &k, const CalConfig &c) {
   // deep — taught the key that its bottom was 40 counts down. Travel then
   // collapsed, every subsequent press saturated instantly, and the key
   // behaved erratically ever after. Same principle as the gesture layer's
-  // refusal to let an un-leaned note shrink the pressure width.
+  // guard against a note too shallow to have measured anything.
   float observed = k.baseline - k.noteMinRaw;
   if (observed < (float)c.minTravel) { k.noteMinRaw = k.baseline; return; }
 

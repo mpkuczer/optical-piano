@@ -24,7 +24,7 @@
 //   0-9  select preset        n / p  next / previous
 //   l    list presets         R      dump the active preset's routes
 //   b    recalibrate (hands off the keys)
-//   r    forget learned travel and widths
+//   r    forget learned travel
 //   L    travel learning on/off. On to teach the keys, off to play: while it
 //        is on, a crosstalk phantom note can teach a key a false bottom.
 //   a    audio CPU and memory

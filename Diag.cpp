@@ -212,17 +212,16 @@ void diagBleedProbe() {
 // ---- per-key report ------------------------------------------------------
 void diagKeyReport() {
   Serial.println("# per-key calibration");
-  Serial.println("#  key\tbase\ttravel\twidth\tphase\tstate");
+  Serial.println("#  key\tbase\ttravel\tphase\tstate");
   Serial.println("#  phase: 0 idle, 1 descending, 2 SOUNDING. Anything showing");
   Serial.println("#  2 with no finger on it is a stuck note.");
   Serial.println("#  travel = counts from rest to this key's own bottom");
-  Serial.println("#  width  = the lean it has shown past a settled note");
   Serial.print("#  travel learning is ");
   Serial.println(scannerLearn() ? "ON ('L' freezes it)" : "FROZEN ('L' re-enables)");
-  // Pressure divides by width, so a width near the jitter floor (~0.011 of
-  // travel) is not a weak signal, it is noise. Any patch routing SRC_PRESSURE
-  // on such a key is being modulated by nothing.
-  Serial.println("#  width below ~0.020 means pressure on that key is mostly noise");
+  // Every column here describes the INSTRUMENT. There is deliberately nothing
+  // per-player left to report: pressure now scales by remaining travel, which
+  // is geometry, so there is no learned lean to inspect or to distrust.
+  Serial.println("#  travel well under ~3000 means a note taught a false bottom");
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const CalKey &k = calKey[r][c];
@@ -235,13 +234,8 @@ void diagKeyReport() {
         continue;
       }
       Serial.print("\t");    Serial.print(calTravel(k), 0);
-      Serial.print("\t");    Serial.print(gestureWidth(g), 4);
       Serial.print("\t");    Serial.print(g.phase);
-      Serial.print("\t");    Serial.print(k.borrowed ? "borrowed" : (k.learned ? "own" : "default"));
-      if (gestureWidth(g) > 0.0f && gestureWidth(g) < 0.020f)
-        Serial.println("  (narrow lean — will feel coarse)");
-      else
-        Serial.println("");
+      Serial.print("\t");    Serial.println(k.borrowed ? "borrowed" : (k.learned ? "own" : "default"));
     }
 }
 

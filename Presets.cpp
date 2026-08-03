@@ -31,12 +31,10 @@ static const LfoConfig LFO_OFF = { 0.0f, LFO_SINE, 0.0f, 0.0f };
 //   1. Velocity ALREADY carries strike intensity, explicitly, on its own
 //      route below. Position carrying it again is double-counting, and
 //      pressure exists mainly to undo a redundancy we could just not create.
-//   2. Pressure's window is at most `heldBand` (0.10) of travel, placed
-//      wherever the note happened to land — usually mid-range, which is the
-//      most optically compressed part of this sensor's response. It also
-//      divides by a learned `width` that is allowed to be 0.012, barely above
-//      the ~0.011 jitter floor, so on a narrow-lean key pressure is mostly
-//      noise. `w` prints that width; check it before trusting the signal.
+//   2. Pressure is now scaled by the travel REMAINING below where the note
+//      settled, so it stretches all the way to the key's own bottom — but
+//      that also means it and position are reading the same stretch of key
+//      from two directions, and only one of them needs to be routed here.
 //
 // The exponent below does the strike-cancelling that `restPos` used to do,
 // without the state: x^4 makes everything below ~0.7 nearly inert, so the
@@ -61,10 +59,9 @@ static const ModRoute R_FLUTE[] = {
   // magnitude only), so the vibrato stays symmetric.
   //
   // This is what `pressure` was really providing here, and it was not the
-  // rest-point subtraction: pressure divides by a learned `width` capped at
-  // 0.10, so a 10% lean drove it 0 -> 1. That division is an expression
-  // AMPLIFIER, and position has no equivalent. The exponent buys the leverage
-  // back, at the cost of asking for a deeper push than the old lean. Total
+  // rest-point subtraction: pressure divides by the room left below the note,
+  // which is an expression AMPLIFIER — and position, measured from rest, has
+  // no equivalent. The exponent buys that leverage back. Total
   // peak deviation, both pitch routes summed, LFO at full fade:
   //     position  0.50   0.70   0.90   1.00
   //     cents      9.8   16.3   27.9   36.0
@@ -75,6 +72,33 @@ static const ModRoute R_FLUTE[] = {
   // Depth raised 7 -> 9 because x^4 spends most of the range doing nothing;
   // set it back to 7.0 if you want a like-for-like A/B against pressure.
   { SRC_POSITION, DST_CUTOFF,   9.0f, SRC_CONST, CURVE_LINEAR, 4.0f },
+  { SRC_VELOCITY, DST_CUTOFF,   5.0f },
+};
+
+// The SAME flute, expressed through PRESSURE — kept verbatim as it was before
+// the position experiment, so the two can be A/B'd on adjacent preset slots
+// rather than argued about. Preset 0 is position, preset 1 is this.
+//
+// What you are comparing is not "which source", it is TWO GESTURES:
+//
+//   preset 0  position^n. Absolute. Expression lives in the last third of
+//             travel, so the gesture is a deliberate PUSH deeper into the
+//             key. Where the note landed leaks in: strike hard and you begin
+//             partway up the curve already.
+//
+//   preset 1  pressure. Relative to where THIS note settled, divided by the
+//             travel REMAINING below it — so the gesture is a LEAN from
+//             wherever you are, down toward the key's own bottom, and the
+//             landing depth cancels. Land deep and the same small move spans
+//             the range, because there genuinely is less key left. Nothing
+//             is learned or accumulated; the divisor is pure geometry.
+//
+// Both leave DST_AMP alone, so neither changes the underlying dynamic — the
+// expression is vibrato and brightness only.
+static const ModRoute R_FLUTE_PRESS[] = {
+  { SRC_LFO1,     DST_PITCH,   26.0f, SRC_PRESSURE },
+  { SRC_LFO1,     DST_PITCH,    6.0f },   // a little always present
+  { SRC_PRESSURE, DST_CUTOFF,   7.0f },   // lean in and it opens up
   { SRC_VELOCITY, DST_CUTOFF,   5.0f },
 };
 
@@ -270,6 +294,19 @@ static const ModRoute R_BOWED[] = {
 };
 
 // ---- the table -----------------------------------------------------------
+// WAVEFORM_BANDLIMIT_*, not the plain names. AudioSynthWaveform's ordinary
+// SAWTOOTH, SQUARE and PULSE are generated naively — a raw ramp or a raw step
+// straight out of the phase accumulator — so every harmonic above Nyquist
+// folds back down into the audible band at an inharmonic frequency. Twenty-five
+// detuned voices' worth of folded partials is a wash of grit that reads as
+// noise rather than as pitch, and it gets worse the higher you play.
+//
+// The BANDLIMIT variants (PolyBLEP) round off the discontinuity over a couple
+// of samples and remove almost all of it. They cost more CPU per oscillator —
+// check with 'a' — and are otherwise drop-in: same amplitude scaling, and
+// BANDLIMIT_PULSE still honours pulseWidth(). SINE and TRIANGLE have no
+// band-limited variant and need none; a sine has no harmonics to fold and a
+// triangle's fall off at 12 dB/octave.
 const Preset PRESET[] = {
 
 // ============================ FLUTE FAMILY =================================
@@ -277,6 +314,15 @@ const Preset PRESET[] = {
     90,  1e9f,  240, 0.85,    6.0,  6.0,  400, 0.70,
     1.00, 0.00, 0.00,
     { 5.4f, LFO_SINE, 260.0f, 300.0f }, LFO_OFF, NROUTES(R_FLUTE),
+    0.00, 0.40, 0.00,   0,   0.00 ,   ART_STRUCK },
+
+// Identical in every field except the route table. Sits next to the one above
+// on purpose: 'n' and 'p' flip between them without touching anything else,
+// which is the only honest way to judge a gesture.
+{ "flutepr", WAVEFORM_SINE,     WAVEFORM_TRIANGLE,   0,  4.0, 0.30,
+    90,  1e9f,  240, 0.85,    6.0,  6.0,  400, 0.70,
+    1.00, 0.00, 0.00,
+    { 5.4f, LFO_SINE, 260.0f, 300.0f }, LFO_OFF, NROUTES(R_FLUTE_PRESS),
     0.00, 0.40, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 { "theremin",WAVEFORM_SINE,     WAVEFORM_SINE,       0,  0.0, 0.00,
@@ -288,7 +334,7 @@ const Preset PRESET[] = {
 // The pad. Same continuous gesture, but with harmonics for the filter to work
 // on, so leaning in changes TIMBRE and not just level — which the ear reads as
 // effort in a way that loudness alone does not.
-{ "swell",   WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  9.0, 0.45,
+{ "swell",   WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 0.45,
     60,  1e9f,  600, 0.70,    1.8,  1.8,  400, 0.90,
     1.00, 0.00, 0.00,
     { 4.6f, LFO_SINE, 200.0f, 600.0f }, LFO_OFF, NROUTES(R_SWELL),
@@ -302,7 +348,7 @@ const Preset PRESET[] = {
     0.00, 0.45, 0.20, 260,   0.30 ,   ART_STRUCK },
 
 // ============================ CIRCUS 2 =====================================
-{ "circus",  WAVEFORM_SAWTOOTH, WAVEFORM_SQUARE,     0,  8.8, 1.00,
+{ "circus",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SQUARE,     0,  8.8, 1.00,
      4,  1e9f,   31, 0.50,    2.0,  2.0,  500, 1.60,
     0.00, 0.00, 1.00,
     { 5.84f, LFO_SINE, 120.0f, 250.0f }, LFO_OFF, NROUTES(R_CIRCUS),
@@ -327,13 +373,13 @@ const Preset PRESET[] = {
     LFO_OFF, LFO_OFF, NROUTES(R_DRIFT),
     0.00, 0.32, 0.00,   0,   0.00 ,   ART_STRUCK },
 
-{ "obie",    WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  9.0, 1.00,
+{ "obie",    WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 1.00,
     16,  1e9f,  450, 0.42,   15.0,  4.0,  650, 1.50,
     1.00, 0.00, 0.00,
     { 5.0f, LFO_SINE, 400.0f, 500.0f }, LFO_OFF, NROUTES(R_OBIE),
     0.15, 0.36, 0.00,   0,   0.00 ,   ART_STRUCK },
 
-{ "fatpluck",WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0, 13.0, 1.00,
+{ "fatpluck",WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0, 13.0, 1.00,
      2,   380,  140, 0.42,   24.0,  3.0,  180, 1.60,
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_PLUCK),
@@ -348,19 +394,19 @@ const Preset PRESET[] = {
     0.00, 0.30, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 // Sample-and-hold stepping the filter. Burbling and mechanical.
-{ "stepped", WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  8.0, 1.00,
+{ "stepped", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  8.0, 1.00,
      4,  1e9f,  200, 0.45,    6.0,  6.0,  400, 1.80,
     1.00, 0.00, 0.00,
     LFO_OFF, { 8.0f, LFO_SAMPLE_HOLD, 0.0f, 0.0f }, NROUTES(R_STEPPED),
     0.05, 0.30, 0.35, 200,   0.40 ,   ART_STRUCK },
 
-{ "shimmer", WAVEFORM_PULSE,    WAVEFORM_PULSE,      0,  5.0, 1.00,
+{ "shimmer", WAVEFORM_BANDLIMIT_PULSE,    WAVEFORM_BANDLIMIT_PULSE,      0,  5.0, 1.00,
     25,  1e9f,  600, 0.42,    9.0,  7.0,  800, 1.10,
     1.00, 0.00, 0.00,
     LFO_OFF, { 0.35f, LFO_SINE, 0.0f, 600.0f }, NROUTES(R_SHIMMER),
     0.00, 0.45, 0.00,   0,   0.00 ,   ART_STRUCK },
 
-{ "nasal",   WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  9.0, 1.00,
+{ "nasal",   WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 1.00,
      6,   800,  280, 0.60,    6.0,  3.0,  350, 2.60,
     0.10, 0.90, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_NASAL),
@@ -372,7 +418,7 @@ const Preset PRESET[] = {
 // but the finger stays on the key afterwards, and that continuing motion adds
 // the vibrato. Struck trigger, expressive hold: neither a piano nor a
 // theremin, and impossible to express before gesture and sound were separated.
-{ "harpsi",  WAVEFORM_SAWTOOTH, WAVEFORM_PULSE,      0,  7.0, 0.55,
+{ "harpsi",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_PULSE,      0,  7.0, 0.55,
      2,  1400,  260, 0.55,   14.0,  4.0,  240, 1.30,
     1.00, 0.00, 0.00,
     { 5.2f, LFO_SINE, 150.0f, 400.0f }, LFO_OFF, NROUTES(R_HARPSI),
@@ -391,20 +437,20 @@ const Preset PRESET[] = {
     LFO_OFF, LFO_OFF, NROUTES(R_DRAWBAR),
     0.00, 0.30, 0.00,   0,   0.00,   ART_GATED },
 
-{ "reed",    WAVEFORM_SAWTOOTH, WAVEFORM_SQUARE,    12,  5.0, 0.55,
+{ "reed",    WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SQUARE,    12,  5.0, 0.55,
     40,  1e9f,  250, 0.65,    1.6,  1.6,  400, 1.60,
     1.00, 0.00, 0.00,
     { 5.6f, LFO_SINE, 300.0f, 500.0f }, LFO_OFF, NROUTES(R_REED),
     0.05, 0.35, 0.00,   0,   0.00,   ART_CONTINUOUS },
 
-{ "bowed",   WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0, 11.0, 1.00,
+{ "bowed",   WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0, 11.0, 1.00,
     30,  1e9f,  350, 0.50,    1.5,  1.5,  400, 1.20,
     1.00, 0.00, 0.00,
     { 5.0f, LFO_SINE, 400.0f, 700.0f }, LFO_OFF, NROUTES(R_BOWED),
     0.00, 0.40, 0.00,   0,   0.00,   ART_CONTINUOUS },
 
 // ============================ DIAGNOSTIC ===================================
-{ "presstest", WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH, 0,  6.0, 1.00,
+{ "presstest", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH, 0,  6.0, 1.00,
      6,  1e9f,  200, 0.55,    2.0,  2.0,  400, 1.20,
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_PRESSTEST),

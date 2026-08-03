@@ -127,28 +127,29 @@ void scannerResetCalibration() {
       calInit(calKey[r][c], (uint16_t)calKey[r][c].baseline, CAL_DEFAULT);
       gestureInit(gest[r][c]);
     }
-  Serial.println("# learned travel and widths forgotten");
+  Serial.println("# learned travel forgotten");
 }
 
 // A key that has never been played borrows from those that have, so it works
 // on its first note instead of needing two or three to warm up.
+// Travel only. Lean width used to be seeded across keys too, which was never
+// defensible: travel is a property of a plastic key and a sensor, so borrowing
+// it from a neighbour is a reasonable guess, but a lean is a property of the
+// player and identical on every key by definition.
 static void seedFromNeighbours() {
-  float travel = 0.0f, width = 0.0f;
-  int nt = 0, nw = 0;
+  float travel = 0.0f;
+  int nt = 0;
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const CalKey &k = calKey[r][c];
       if (k.learned && !k.borrowed && !calDead(k, CAL_DEFAULT)) {
         travel += calTravel(k); nt++;
       }
-      const GestureState &g = gest[r][c];
-      if (g.widthLearned && !g.widthBorrowed) { width += g.width; nw++; }
     }
+  if (!nt) return;
   for (int r = 0; r < 5; r++)
-    for (int c = 0; c < 5; c++) {
-      if (nt) calSeedTravel(calKey[r][c], CAL_DEFAULT, travel / nt);
-      if (nw) gestureSeedWidth(gest[r][c], GESTURE_DEFAULT, width / nw);
-    }
+    for (int c = 0; c < 5; c++)
+      calSeedTravel(calKey[r][c], CAL_DEFAULT, travel / nt);
 }
 
 // Release everything. Changing preset can change the articulation, and a
@@ -231,8 +232,7 @@ void scannerScanOnce() {
 #if VERBOSE
         Serial.print("s"); Serial.print(r * 5 + c + 1);
         Serial.print(" OFF rel="); Serial.print(e.releaseVel, 2);
-        Serial.print("  travel="); Serial.print(calTravel(k), 0);
-        Serial.print("  width=");  Serial.println(gestureWidth(g), 4);
+        Serial.print("  travel="); Serial.println(calTravel(k), 0);
 #endif
       }
       if (e.noteEnded && learnTravel) {

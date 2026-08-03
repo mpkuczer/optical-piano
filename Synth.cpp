@@ -38,6 +38,32 @@ static const float    TAU_VEL_MAX = 1.35f;    // hard hits ring longer
 static const float    FILT_MIN_HZ = 120.0f;
 static const float    FILT_MAX_HZ = 15000.0f;
 
+// ---- anti-zipper ----------------------------------------------------------
+// AudioSynthWaveform::amplitude() and AudioFilterStateVariable::frequency()
+// take effect IMMEDIATELY and hold for the whole next 128-sample block. They
+// do not ramp. So whatever value synthUpdate writes becomes a staircase in the
+// audio, one step every 2-3 ms.
+//
+// That would be harmless if the values were smooth, but they are not: on the
+// continuous patches they are the photodarlington reading, and Gesture.cpp
+// measures roughly 0.011 of travel of jitter on it. Through an exponent that
+// is around 1.5% of amplitude wobbling at the scan rate — which is amplitude
+// modulation by noise, and modulating a tone with noise puts noise sidebands
+// either side of it. Sensor hiss becomes audio hiss, pitched around whatever
+// you are playing.
+//
+// A one-pole on the APPLIED value fixes it. Gesture.cpp already smooths at
+// 8 ms; this is a second stage, and two poles reject the jitter roughly twice
+// as hard in dB. 12 ms is a 13 Hz corner: about 25 dB down at the scan rate
+// and far faster than any gesture a finger can make, so it costs nothing you
+// can feel. Raise it if hiss persists, lower it if expression feels laggy.
+static const float AMP_SMOOTH_MS = 12.0f;
+// The cutoff wants a shorter one. Filter sweeps are a deliberate part of the
+// attack on the plucked patches (fTau down to 180 ms) and over-smoothing them
+// blunts the transient, but the SVF is just as sensitive to a stepping
+// coefficient as the oscillator is to a stepping amplitude.
+static const float CUT_SMOOTH_MS = 6.0f;
+
 // Gain staging. Deliberately conservative: resonant filters add gain around
 // the cutoff and the effects add more, so the raw voice sum needs headroom
 // well below unity. If it's too quiet, raise sgtl.volume() instead — that is
@@ -50,7 +76,42 @@ static const float REL_SCALE_SLOW = 1.60f;   // lifted gently: let it hang
 static const float MIX1_GAIN = 0.32f;
 static const float MIX2_GAIN = 0.60f;
 static const float VERB_ROOM = 0.72f;
-static const float VERB_DAMP = 0.45f;
+// Raised 0.45 -> 0.62. `damping` is a one-pole INSIDE each comb's feedback
+// loop, so it darkens the recirculating quantisation noise as well as the
+// signal. At 0.45 the pole coefficient is only 0.18 — a corner around 12 kHz,
+// which is barely a lowpass at all, and the reverb's own hiss stayed white.
+static const float VERB_DAMP = 0.62f;
+
+// ---- reverb noise: why the send is hot and the return is quiet -------------
+// AudioEffectFreeverbStereo is fixed point with INT16 comb and allpass
+// buffers, and it scales its input down by 1/15 for internal headroom
+// (effect_freeverb.cpp: `input = sat16(block->data[i] * 8738, 17)`) then
+// multiplies the output back up by 30. Every sample in every one of the eight
+// combs is truncated to int16 and fed back at ~0.9, so the round-off error
+// recirculates, accumulates across combs, and leaves at 30x.
+//
+// That error is broadband, diffuse and decorrelated between L and R — which is
+// to say it is white noise, and it appears exactly when you play. It is the
+// dominant noise source in this instrument, not the oscillators.
+//
+// Its level is fixed relative to the reverb's OWN full scale, so the only
+// lever is to send the reverb a hotter signal and turn the return back down by
+// the same factor. The dry bus sits at about 0.16 of full scale for one voice
+// (MIX1_GAIN * MIX2_GAIN * ampScale), so it is throwing away four bits before
+// the reverb ever sees it.
+//
+// 2.0 is deliberately modest: AudioMixer4 SATURATES, so a send this hot will
+// flat-top the reverb input somewhere above three simultaneous full-amplitude
+// notes. Distortion in a reverb tail on a dense chord is far less noticeable
+// than hiss on every note, but if you hear the tail crunch on big chords, lower
+// this. Raising it buys 6 dB of reverb SNR per doubling.
+static const float VERB_SEND = 2.0f;
+// The recirculated round-off is white; the reverb's musical content is not.
+// A 4th-order lowpass on the RETURN removes most of the hiss the ear actually
+// weights while leaving the tail intact — most of white noise's perceived
+// loudness lives above this corner, and a real room has nothing up there
+// anyway. Lower it for a darker room, raise it if the tail sounds muffled.
+static const float VERB_LP_HZ = 4500.0f;
 
 // ---- audio objects -------------------------------------------------------
 static AudioSynthWaveform        oscA[NUM_VOICES];
@@ -63,7 +124,9 @@ static AudioMixer4               mix1[7];
 static AudioMixer4               mix2[2];
 static AudioMixer4               mixOut;
 static AudioEffectWaveshaper     shaper;
+static AudioMixer4               verbSend;           // gain-up into the reverb
 static AudioEffectFreeverbStereo verb;
+static AudioFilterBiquad         verbLpL, verbLpR;   // de-hiss the return
 static AudioMixer4               delayIn;            // dry + feedback
 static AudioEffectDelay          delayLine;
 static AudioMixer4               outL, outR;
@@ -96,6 +159,12 @@ static float    voiceRelease[NUM_VOICES]; // ms, after release-velocity scaling
 static bool     voiceReleased[NUM_VOICES];
 static float    voiceLastGain[NUM_VOICES];  // for diagnostics only
 static uint32_t voiceOffMs[NUM_VOICES];
+// Smoothed copies of the three parameters synthUpdate writes every sweep. See
+// AMP_SMOOTH_MS. Seeded at note-on so a voice opens at its real value rather
+// than sliding up to it from wherever the previous note left off.
+static float    voiceAmpSmA[NUM_VOICES];
+static float    voiceAmpSmB[NUM_VOICES];
+static float    voiceCutSm[NUM_VOICES];
 static uint32_t rngState = 0x12345678;
 
 // Cheap deterministic RNG. Per-note randomness is how analog drift is faked:
@@ -108,7 +177,8 @@ static bool     voiceDecaying[NUM_VOICES];
 
 static int      currentPreset = 0;
 static uint32_t lastUpdateMs  = 0;
-static float    shapeTable[65];
+static const int SHAPE_N = 257;        // must be 2^n + 1
+static float    shapeTable[SHAPE_N];
 
 static inline float clampf(float x, float lo, float hi) {
   return x < lo ? lo : (x > hi ? hi : x);
@@ -139,13 +209,17 @@ static void buildGraph() {
   // Bus: waveshaper first (it's a distortion, so it wants the raw sum),
   // then parallel dry / reverb / delay sends.
   pc[pcCount++] = new AudioConnection(mixOut, 0, shaper, 0);
-  pc[pcCount++] = new AudioConnection(shaper, 0, verb,    0);
+  pc[pcCount++] = new AudioConnection(shaper, 0, verbSend, 0);
   pc[pcCount++] = new AudioConnection(shaper, 0, delayIn, 0);
   pc[pcCount++] = new AudioConnection(shaper, 0, outL,    0);
   pc[pcCount++] = new AudioConnection(shaper, 0, outR,    0);
 
-  pc[pcCount++] = new AudioConnection(verb, 0, outL, 1);
-  pc[pcCount++] = new AudioConnection(verb, 1, outR, 1);
+  // Hot in, lowpassed and quiet out — see VERB_SEND for why.
+  pc[pcCount++] = new AudioConnection(verbSend, 0, verb,    0);
+  pc[pcCount++] = new AudioConnection(verb,     0, verbLpL, 0);
+  pc[pcCount++] = new AudioConnection(verb,     1, verbLpR, 0);
+  pc[pcCount++] = new AudioConnection(verbLpL,  0, outL,    1);
+  pc[pcCount++] = new AudioConnection(verbLpR,  0, outR,    1);
 
   // Feedback loop: the delay's output goes back into its own input. That is
   // what produces repeats rather than a single echo.
@@ -160,8 +234,16 @@ static void buildGraph() {
 
 // A soft-saturation curve. drive 0 gives a straight line (no change at all);
 // higher drive bends it, which is what generates extra harmonics.
+//
+// 257 points, not 65. AudioEffectWaveshaper LERPS between table entries, so
+// the curve the audio actually meets is piecewise linear, and every kink
+// between segments is a discontinuity in the first derivative — which radiates
+// high harmonics that then alias back down as inharmonic hash. At 65 points
+// each segment spanned 1/32 of full scale, coarse enough to hear on the drive
+// presets. 257 cuts the kink angle by 4x for 512 bytes of table.
+// The length must be a power of two plus one or shape() silently does nothing.
 static void buildShapeTable(float drive) {
-  const int N = 65;
+  const int N = SHAPE_N;
   float k = 1.0f + drive * 12.0f;
   for (int i = 0; i < N; i++) {
     float x = -1.0f + 2.0f * i / (N - 1);
@@ -180,7 +262,10 @@ static void applyPresetBus() {
   float dry = 1.0f - 0.4f * p.verb - 0.3f * p.delaySend;
   if (dry < 0.25f) dry = 0.25f;
   outL.gain(0, dry);         outR.gain(0, dry);
-  outL.gain(1, p.verb);      outR.gain(1, p.verb);
+  // The send already multiplied by VERB_SEND, so the return divides it back
+  // out. p.verb still means what it always meant; nothing in Presets.cpp moves.
+  float verbRet = p.verb / VERB_SEND;
+  outL.gain(1, verbRet);     outR.gain(1, verbRet);
   outL.gain(2, p.delaySend); outR.gain(2, p.delaySend);
   outL.gain(3, 0.0f);        outR.gain(3, 0.0f);
 
@@ -233,8 +318,16 @@ void synthBegin() {
   mixOut.gain(0, 1.0f); mixOut.gain(1, 1.0f);
   mixOut.gain(2, 0.0f); mixOut.gain(3, 0.0f);
 
+  verbSend.gain(0, VERB_SEND);
+  verbSend.gain(1, 0.0f); verbSend.gain(2, 0.0f); verbSend.gain(3, 0.0f);
   verb.roomsize(VERB_ROOM);
   verb.damping(VERB_DAMP);
+  // Two Butterworth stages = 24 dB/octave. The Q pair is what makes a cascade
+  // of two biquads maximally flat rather than peaky at the corner.
+  verbLpL.setLowpass(0, VERB_LP_HZ, 0.5412f);
+  verbLpL.setLowpass(1, VERB_LP_HZ, 1.3066f);
+  verbLpR.setLowpass(0, VERB_LP_HZ, 0.5412f);
+  verbLpR.setLowpass(1, VERB_LP_HZ, 1.3066f);
   for (int t = 1; t < 8; t++) delayLine.disable(t);
 
   applyPresetBus();
@@ -332,14 +425,23 @@ void synthNoteOn(int row, int col, float velocity) {
   // Waveform and envelope are applied HERE rather than when the preset
   // changes, so switching timbre mid-chord never clicks.
   AudioNoInterrupts();
-  oscA[i].begin(p.waveA);
-  oscB[i].begin(p.waveB);
+  // ORDER MATTERS, and it did not used to. The band-limited waveforms carry
+  // internal state, and begin() seeds it from whatever phase_increment and
+  // pulse_width are set at that instant — see AudioSynthWaveform::begin() in
+  // synth_waveform.h. Called before frequency(), it seeds the BLEP generator
+  // with the previous note's pitch, and the oscillator spends the first cycles
+  // correcting itself. Frequency and width first, then begin.
   oscA[i].frequency(fA);
   oscB[i].frequency(fB);
-  oscA[i].amplitude(amp);
-  oscB[i].amplitude(amp * p.mixB);
   oscA[i].pulseWidth(0.5f);
   oscB[i].pulseWidth(0.5f);
+  oscA[i].begin(p.waveA);
+  oscB[i].begin(p.waveB);
+  oscA[i].amplitude(amp);
+  oscB[i].amplitude(amp * p.mixB);
+  voiceAmpSmA[i] = amp;
+  voiceAmpSmB[i] = amp * p.mixB;
+  voiceCutSm[i]  = peak;
   vfilt[i].resonance(p.res);
   vfilt[i].frequency(peak);
   // A continuous instrument must not have an attack shape of its own: any
@@ -437,8 +539,15 @@ void synthUpdate() {
       float peak = a * (1.0f + bLevel);
       if (peak > 1.0f) a /= peak;
     }
-    oscA[i].amplitude(a);
-    oscB[i].amplitude(a * bLevel);
+    // Smooth what is actually written, not the modulation that produced it —
+    // the normalisation above can move `a` on its own, and a step is a step
+    // whatever caused it. Both oscillators get their own pole so a moving
+    // bLevel does not zipper either.
+    const float kAmp = (float)UPDATE_MS / (AMP_SMOOTH_MS + (float)UPDATE_MS);
+    voiceAmpSmA[i] += kAmp * (a          - voiceAmpSmA[i]);
+    voiceAmpSmB[i] += kAmp * (a * bLevel - voiceAmpSmB[i]);
+    oscA[i].amplitude(voiceAmpSmA[i]);
+    oscB[i].amplitude(voiceAmpSmB[i]);
 
     // --- apply: pitch (cents on both) and detune (cents on B only) --------
     if (mod[DST_PITCH] != 0.0f || mod[DST_DETUNE] != 0.0f) {
@@ -453,7 +562,14 @@ void synthUpdate() {
     float cut = voiceCutBase[i] + (voiceCutPeak[i] - voiceCutBase[i]) * filtEnv;
     if (mod[DST_CUTOFF] != 0.0f)
       cut *= powf(2.0f, mod[DST_CUTOFF] / 12.0f);
-    vfilt[i].frequency(clampf(cut, FILT_MIN_HZ, FILT_MAX_HZ));
+    cut = clampf(cut, FILT_MIN_HZ, FILT_MAX_HZ);
+    // Smoothed in LOG space, because that is the domain the ear and the route
+    // depths both work in: a fixed-Hz pole would crawl at the bottom of the
+    // range and snap at the top, so the same sweep would smear differently
+    // depending on which octave it happened in.
+    const float kCut = (float)UPDATE_MS / (CUT_SMOOTH_MS + (float)UPDATE_MS);
+    voiceCutSm[i] *= powf(cut / voiceCutSm[i], kCut);
+    vfilt[i].frequency(voiceCutSm[i]);
 
     // --- apply: resonance and pulse width ---------------------------------
     if (mod[DST_RES] != 0.0f)

@@ -41,8 +41,12 @@ const GestureConfig GESTURE_DEFAULT = {
   /* stillRate   */ 0.20f,
   /* velTauMs    */ 30.0f,
   /* heldBand    */ 0.10f,
-  /* minWidth    */ 0.012f,
-  /* widthLearn  */ 0.25f,
+  // Room left below the rest point can legitimately be tiny — a hard strike
+  // can land the key near its own bottom — and the divisor must not run away.
+  // 0.10 also matches heldBand, so a note that lands fully bottomed behaves
+  // like one with exactly a lean's worth of room rather than going infinitely
+  // twitchy.
+  /* minRoom     */ 0.100f,
   /* smoothTauMs */ 8.0f,
   /* retreatHyst */ 0.025f,
   /* maxDescentMs*/ 600.0f,
@@ -63,17 +67,9 @@ void gestureInit(GestureState &g) {
   g.overCount = 0; g.underCount = 0;
   g.position = 0.0f; g.pressure = 0.0f; g.strike = 0.5f;
   g.restPos = 0.0f; g.haveRest = false; g.noteMaxPos = 0.0f;
-  g.width = 0.0f; g.widthLearned = false; g.widthBorrowed = false;
 }
 
 bool gestureIdle(const GestureState &g) { return g.phase == GP_IDLE; }
-float gestureWidth(const GestureState &g) { return g.widthLearned ? g.width : 0.0f; }
-
-void gestureSeedWidth(GestureState &g, const GestureConfig &c, float width) {
-  if (g.widthLearned && !g.widthBorrowed) return;
-  if (width < c.minWidth) return;
-  g.width = width; g.widthLearned = true; g.widthBorrowed = true;
-}
 
 // Flight time -> 0..1. Logarithmic, because the ear's sense of "harder" is
 // closer to a ratio than a difference.
@@ -116,24 +112,19 @@ static void updatePressure(GestureState &g, const GestureConfig &c,
     }
   }
 
+  // Scale the lean by the travel LEFT below where this note settled. Land
+  // shallow and there is a lot of key to push through; land deep and a small
+  // move spans the same range — which is the honest report, because a deep
+  // landing really has left you less to work with.
   float target = 0.0f;
-  if (g.haveRest && gestureWidth(g) >= c.minWidth)
-    target = clampf((pos - g.restPos) / g.width, 0.0f, 1.0f);
+  if (g.haveRest) {
+    float room = 1.0f - g.restPos;
+    if (room < c.minRoom) room = c.minRoom;
+    target = clampf((pos - g.restPos) / room, 0.0f, 1.0f);
+  }
 
   float a = dtMs / (c.smoothTauMs + dtMs);
   g.pressure += clampf(a, 0.0f, 1.0f) * (target - g.pressure);
-}
-
-static void learnWidth(GestureState &g, const GestureConfig &c) {
-  if (!g.haveRest) return;
-  float obs = g.noteMaxPos - g.restPos;
-  if (obs > c.heldBand) obs = c.heldBand;      // not a lean; do not believe it
-  if (obs < c.minWidth) return;                // taught nothing; do not shrink
-  if (!g.widthLearned || g.widthBorrowed) {
-    g.width = obs; g.widthLearned = true; g.widthBorrowed = false;
-  } else {
-    g.width += c.widthLearn * (obs - g.width); // symmetric: no ratchet
-  }
 }
 
 static void beginNote(GestureState &g, GestureEvent &e, float vel, float nowMs,
@@ -147,9 +138,9 @@ static void beginNote(GestureState &g, GestureEvent &e, float vel, float nowMs,
   e.noteOn = true; e.velocity = vel;
 }
 
-static void endNote(GestureState &g, const GestureConfig &c,
-                    GestureEvent &e, float releaseVel) {
-  learnWidth(g, c);
+// No longer takes the config: with width gone there is nothing left to learn
+// at note end. Ending a note is now pure teardown.
+static void endNote(GestureState &g, GestureEvent &e, float releaseVel) {
   g.phase = GP_IDLE;
   g.pressure = 0.0f;
   g.overCount = 0; g.underCount = 0;
@@ -238,7 +229,7 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
         // Release speed: how fast the key came back up, in position per
         // second. Negative velocity means rising.
         float rel = clampf(-g.vel / 4.0f, 0.0f, 1.0f);
-        endNote(g, c, e, rel);
+        endNote(g, e, rel);
       }
       break;
   }
