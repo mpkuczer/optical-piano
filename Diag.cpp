@@ -82,20 +82,36 @@ void diagServiceTrace() {
 // read — and the trigger threshold has to sit well above it.
 void diagCrosstalkProbe() {
   Serial.println("# ---- crosstalk probe ----");
-  Serial.println("# Press and HOLD one key. Move to another and hold. Cover a");
-  Serial.println("# few. Any character stops and prints the worst case seen.");
+  Serial.println("# Hold ONE key hard. Move to another. Cover several.");
+  Serial.println("# LEAVE AT LEAST TWO KEYS UNTOUCHED — they are the");
+  Serial.println("# measurement; everything you touch is excluded.");
+  Serial.println("# Any character stops.");
+
+  // Any key that ever crosses this was under a finger, and its peak is a
+  // record of YOUR PRESS, not of bleed. The previous version of this probe
+  // did not track that, so every key you touched reported a number just
+  // under the held-key threshold and the grid looked like uniform crosstalk
+  // across the whole board. It was measuring the descent.
+  const float TOUCHED = 0.50f;
 
   float peak[5][5];
-  int   heldR = -1, heldC = -1;
-  for (int r = 0; r < 5; r++) for (int c = 0; c < 5; c++) peak[r][c] = 0.0f;
+  bool  touched[5][5];
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) { peak[r][c] = 0.0f; touched[r][c] = false; }
 
   while (!Serial.available()) {
     scannerScanOnce();
-    float best = 0.35f;                 // what counts as "the key being held"
+
+    int heldR = -1, heldC = -1;
+    float best = TOUCHED;
     for (int r = 0; r < 5; r++)
-      for (int c = 0; c < 5; c++)
-        if (calKey[r][c].position > best) { best = calKey[r][c].position; heldR = r; heldC = c; }
-    if (heldR < 0) continue;
+      for (int c = 0; c < 5; c++) {
+        float p = calKey[r][c].position;
+        if (p > TOUCHED) touched[r][c] = true;
+        if (p > best) { best = p; heldR = r; heldC = c; }
+      }
+    if (heldR < 0) continue;                 // nothing held: nothing to bleed
+
     for (int r = 0; r < 5; r++)
       for (int c = 0; c < 5; c++) {
         if (r == heldR && c == heldC) continue;
@@ -104,31 +120,36 @@ void diagCrosstalkProbe() {
   }
   while (Serial.available()) Serial.read();
 
-  Serial.println("# worst position seen on a key while a DIFFERENT key was held:");
+  Serial.println("# peak position while a DIFFERENT key was held.");
+  Serial.println("# 'pressed' = you touched it, so its number means nothing.");
   float worst = 0.0f;
+  int   measured = 0;
   for (int r = 0; r < 5; r++) {
     Serial.print("#   ");
     for (int c = 0; c < 5; c++) {
-      Serial.print("s"); Serial.print(r * 5 + c + 1);
-      Serial.print("="); Serial.print(peak[r][c], 3); Serial.print("  ");
+      Serial.print("s"); Serial.print(r * 5 + c + 1); Serial.print("=");
+      if (touched[r][c]) { Serial.print("pressed  "); continue; }
+      Serial.print(peak[r][c], 3); Serial.print("  ");
+      measured++;
       if (peak[r][c] > worst) worst = peak[r][c];
     }
     Serial.println();
   }
-  Serial.print("# worst bleed = "); Serial.print(worst, 3);
-  Serial.print(" of travel. The continuous trigger is at ");
-  Serial.print(GESTURE_DEFAULT.contOn, 3); Serial.println(".");
+
+  if (measured < 2) {
+    Serial.println("# NOT ENOUGH DATA: you pressed almost every key. Run it");
+    Serial.println("# again and leave a few alone — those are the measurement.");
+    return;
+  }
+  Serial.print("# worst bleed over "); Serial.print(measured);
+  Serial.print(" untouched keys = "); Serial.print(worst, 3);
+  Serial.print(" of travel; continuous trigger is ");
+  Serial.println(GESTURE_DEFAULT.contOn, 3);
   Serial.print("# CROSS_BLEED is currently "); Serial.println(CROSS_BLEED, 4);
   if (worst * 2.5f > GESTURE_DEFAULT.contOn) {
-    // Residual bleed after correction implies the coefficient is too small.
-    // Scale it by how far over we are, which is the first-order estimate.
-    float suggest = CROSS_BLEED + worst;
-    Serial.println("# TOO CLOSE. Either raise CROSS_BLEED in Config.h to about");
-    Serial.print("#   "); Serial.print(suggest, 4);
-    Serial.println("  (residual bleed says the coefficient is too small),");
-    Serial.println("# or raise SETTLE_US, or raise contOn in Gesture.cpp to");
-    Serial.print("#   "); Serial.print(worst * 2.5f, 3);
-    Serial.println("  — the audio taper keeps that inaudible anyway.");
+    Serial.println("# TOO CLOSE. Residual bleed means CROSS_BLEED is too small;");
+    Serial.print("#   try "); Serial.print(CROSS_BLEED + worst, 4);
+    Serial.println(" in Config.h, or raise SETTLE_US.");
   } else {
     Serial.println("# Comfortable margin: bleed cannot trigger a note.");
   }
