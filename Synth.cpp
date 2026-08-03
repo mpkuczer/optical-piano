@@ -25,6 +25,7 @@
 // ============================================================================
 #include <Audio.h>
 #include "Config.h"
+#include "Gesture.h"
 #include "Preset.h"
 #include "Synth.h"
 #include "ModMatrix.h"
@@ -41,6 +42,11 @@ static const float    FILT_MAX_HZ = 15000.0f;
 // the cutoff and the effects add more, so the raw voice sum needs headroom
 // well below unity. If it's too quiet, raise sgtl.volume() instead — that is
 // analog gain applied AFTER the digital summing, so it cannot clip.
+// Release-time scaling from release velocity. A sound property, so it lives
+// with the synth rather than in the hardware config.
+static const float REL_SCALE_FAST = 0.35f;   // snatched away: cut it short
+static const float REL_SCALE_SLOW = 1.60f;   // lifted gently: let it hang
+
 static const float MIX1_GAIN = 0.32f;
 static const float MIX2_GAIN = 0.60f;
 static const float VERB_ROOM = 0.72f;
@@ -83,10 +89,12 @@ static float    voiceKeytrk[NUM_VOICES];// -1..1, for SRC_KEYTRACK
 static float    voiceRand[NUM_VOICES];  // -1..1, drawn once per note
 static uint32_t voiceSeed[NUM_VOICES];  // sample-and-hold seed
 static float    voiceResBase[NUM_VOICES];
-static float    voicePress[NUM_VOICES];   // 0..1, updated while key is held
+static float    voicePress[NUM_VOICES];   // relative, 0..1
+static float    voicePos[NUM_VOICES];     // absolute, 0..1
 static float    voiceLfoPh[NUM_VOICES];   // 0..1 cycles of LFO head start
 static float    voiceRelease[NUM_VOICES]; // ms, after release-velocity scaling
 static bool     voiceReleased[NUM_VOICES];
+static float    voiceLastGain[NUM_VOICES];  // for diagnostics only
 static uint32_t voiceOffMs[NUM_VOICES];
 static uint32_t rngState = 0x12345678;
 
@@ -232,16 +240,35 @@ void synthBegin() {
   applyPresetBus();
 
   sgtl.enable();
-  sgtl.volume(0.80f);
+  // Raised from 0.80 to make up for the voice-mixer normalisation. This is
+  // analog gain applied AFTER the digital summing, so unlike raising the
+  // mixer gains it cannot clip. If the instrument is too quiet, raise this
+  // and nothing else.
+  sgtl.volume(0.92f);
   sgtl.lineOutLevel(29);
 }
 
 // ---- notes ---------------------------------------------------------------
-void synthNoteOn(int row, int col, int velocity) {
+void synthNoteOn(int row, int col, float velocity) {
   int i = row * 5 + col;
-  float v = velocity / 127.0f;
+  float v = clampf(velocity, 0.0f, 1.0f);
   const Preset &p = PRESET[currentPreset];
-  float amp = (0.06f + 0.84f * powf(v, 1.4f)) * p.ampScale;
+  // In continuous mode the strike carries no information: loudness is key
+  // POSITION, delivered later through pressure. Baking velocity into the
+  // amplitude here is exactly what made a hard strike leave a loud floor
+  // that leaning out could never get below.
+  // The articulation already decided whether velocity means anything — see
+  // Gesture.cpp, which hands us 0.5 when it does not. Nothing to re-decide.
+  bool cont = (p.articulation == ART_CONTINUOUS);
+  float amp = cont ? p.ampScale
+                   : (0.06f + 0.84f * powf(v, 1.4f)) * p.ampScale;
+  // Both oscillators feed vmix at gain 1.0, so the voice's peak is
+  // amp * (1 + mixB) — and AudioMixer4 SATURATES at full scale. theremin sat
+  // at 1.125, flute 1.105, tremolo 1.595. Clipping a sine flat-tops it, and a
+  // flat-topped sine is odd harmonics, which is why it read as a clarinet's
+  // low register. Normalising here means ampScale now means what it says: the
+  // peak of the whole voice, not of one oscillator.
+  amp /= (1.0f + p.mixB);
 
   // Detune split symmetrically so perceived pitch stays put.
   float half = p.cents * 0.5f;
@@ -263,7 +290,9 @@ void synthNoteOn(int row, int col, int velocity) {
   voiceRand[i]     = nextRandomBipolar();
   voiceSeed[i]     = rngState;
   voiceResBase[i]  = p.res;
-  voicePress[i]    = 0.0f;
+  // Expression is pushed every sweep, including before this note began, so
+  // the voice opens at the key's real level rather than jumping up from zero.
+  voicePress[i] = 0.0f;
   voiceReleased[i] = false;
   voiceRelease[i]  = p.r;
   // Golden-ratio stride: 25 voices spread almost perfectly evenly around the
@@ -276,6 +305,29 @@ void synthNoteOn(int row, int col, int velocity) {
   voiceFTau[i]     = p.fTau;
   voiceOnMs[i]     = millis();
   voiceDecaying[i] = true;
+
+  // Evaluate modulation ONCE, right now, so the oscillator never starts at a
+  // level the modulation is about to contradict. Without this the voice runs
+  // at full amplitude until the next synthUpdate — up to UPDATE_MS plus a
+  // whole scan sweep — and AudioSynthWaveform::amplitude() does not ramp, so
+  // that is a step discontinuity straight into the speaker. Audible as a pop
+  // on the first note out of silence, and masked (not absent) when a reverb
+  // tail happens to be ringing.
+  {
+    ModContext ctx;
+    ctx.velocity = voiceVel[i];
+    ctx.keytrack = voiceKeytrk[i];
+    ctx.ampEnv   = 1.0f;
+    ctx.filtEnv  = 1.0f;
+    ctx.ageMs    = 0.0f;
+    ctx.randomv  = voiceRand[i];
+    ctx.pressure = voicePress[i];
+    ctx.position = voicePos[i];
+    ctx.lfoPhase = voiceLfoPh[i];
+    float mod0[NUM_DESTS];
+    modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod0);
+    amp *= clampf(1.0f + mod0[DST_AMP], 0.0f, 2.0f);
+  }
 
   // Waveform and envelope are applied HERE rather than when the preset
   // changes, so switching timbre mid-chord never clicks.
@@ -290,7 +342,12 @@ void synthNoteOn(int row, int col, int velocity) {
   oscB[i].pulseWidth(0.5f);
   vfilt[i].resonance(p.res);
   vfilt[i].frequency(peak);
-  env[i].attack(p.a);
+  // A continuous instrument must not have an attack shape of its own: any
+  // ramp here is a second, competing amplitude envelope layered under the one
+  // your finger is drawing.
+  // 4 ms rather than 1: long enough that the envelope's own opening edge is
+  // below the threshold of a click, short enough to feel instantaneous.
+  env[i].attack(cont ? 4.0f : p.a);
   env[i].hold(0.0f);
   env[i].decay(0.0f);
   env[i].sustain(1.0f);
@@ -312,8 +369,9 @@ void synthNoteOff(int row, int col, float releaseVel) {
   env[i].noteOff();
 }
 
-void synthPressure(int row, int col, float pressure) {
+void synthExpression(int row, int col, float position, float pressure) {
   int i = row * 5 + col;
+  voicePos[i] = clampf(position, 0.0f, 1.0f);
   if (!voiceReleased[i]) voicePress[i] = clampf(pressure, 0.0f, 1.0f);
 }
 
@@ -362,14 +420,23 @@ void synthUpdate() {
     ctx.ageMs    = dt;
     ctx.randomv  = voiceRand[i];
     ctx.pressure = voicePress[i];
+    ctx.position = voicePos[i];
     ctx.lfoPhase = voiceLfoPh[i];
     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod);
 
     // --- apply: amplitude -------------------------------------------------
     float gain = 1.0f + mod[DST_AMP];
     if (gain < 0.0f) gain = 0.0f;
+    voiceLastGain[i] = gain;
     float a = voiceAmp0[i] * ampEnv * gain;
     float bLevel = clampf(voiceMixB[i] + mod[DST_OSCB], 0.0f, 1.5f);
+    // Modulation can push the pair back over full scale even after the
+    // note-on normalisation — tremolo adds up to +0.45 of gain, presstest
+    // +0.60. Scale the pair down rather than let the mixer saturate.
+    {
+      float peak = a * (1.0f + bLevel);
+      if (peak > 1.0f) a /= peak;
+    }
     oscA[i].amplitude(a);
     oscB[i].amplitude(a * bLevel);
 
@@ -409,6 +476,57 @@ void presetAnnounce() {
   Serial.print(": "); Serial.println(PRESET[currentPreset].name);
 }
 
+// Print the ACTIVE preset's modulation routes. Until now there has been no
+// way to confirm from the board that the firmware you flashed actually
+// contains pressure routing — if Presets.cpp was not updated along with
+// everything else, pressure works perfectly and moves nothing.
+void presetDumpRoutes() {
+  const Preset &q = PRESET[currentPreset];
+  Serial.print("# routes for preset "); Serial.print(currentPreset);
+  Serial.print(" '"); Serial.print(q.name); Serial.print("' (");
+  Serial.print(q.nRoutes); Serial.print(" routes, gesture ");
+  switch (q.articulation) {
+    case ART_CONTINUOUS: Serial.println("CONTINUOUS (no trigger point, no velocity)"); break;
+    case ART_STRUCK:     Serial.println("STRUCK (velocity from flight time)");         break;
+    case ART_GATED:      Serial.println("GATED (no velocity, no held expression)");    break;
+    case ART_PLUCKED:    Serial.println("PLUCKED (velocity discarded, held expression)"); break;
+    default:             Serial.println("?");                                          break;
+  }
+  if (q.nRoutes == 0 || q.routes == nullptr) {
+    Serial.println("#   (none)");
+    return;
+  }
+  bool hasPress = false;
+  for (int k = 0; k < q.nRoutes; k++) {
+    const ModRoute &m = q.routes[k];
+    Serial.print("#   "); Serial.print(modSourceName(m.source));
+    Serial.print(" -> ");  Serial.print(modDestName(m.dest));
+    Serial.print("  depth "); Serial.print(m.depth, 2);
+    if (m.via != SRC_CONST) {
+      Serial.print("  via "); Serial.print(modSourceName(m.via));
+    }
+    if (m.curve != CURVE_LINEAR) {
+      Serial.print("  curve "); Serial.print(m.curve);
+    }
+    Serial.println();
+    if (m.source == SRC_PRESSURE || m.via == SRC_PRESSURE ||
+        m.source == SRC_POSITION || m.via == SRC_POSITION) hasPress = true;
+  }
+  Serial.println(hasPress ? "#   -> key motion IS routed in this preset"
+                          : "#   -> NO position/pressure route: the held key does nothing");
+  // Worst-case level check, since silent clipping is the least obvious way
+  // for a patch to sound wrong.
+  float ampMod = 0.0f;
+  for (int k = 0; k < q.nRoutes; k++)
+    if (q.routes[k].dest == DST_AMP && q.routes[k].depth > 0.0f)
+      ampMod += q.routes[k].depth;
+  float peak = q.ampScale * (1.0f + q.mixB) * (1.0f + ampMod);
+  Serial.print("#   headroom: peak voice sum = "); Serial.print(peak, 3);
+  Serial.println(peak > 1.0f
+                 ? "  (was clipping before normalisation; now scaled)"
+                 : "  (fits)");
+}
+
 void presetList() {
   Serial.println("# presets:");
   for (int i = 0; i < PRESET_COUNT; i++) {
@@ -437,6 +555,44 @@ void presetSelect(int index) {
   applyPresetBus();
   presetAnnounce();
 }
+
+// Drive pressure directly, with the scanner completely out of the picture.
+// If the sound does not change under this, the fault is in the audio graph or
+// the route table. If it does change, the fault is upstream in the scanner.
+// Everything so far has been guesswork for want of exactly this split.
+void synthPressureTest() {
+  const Preset &p = PRESET[currentPreset];
+  Serial.print("# pressure sweep on the middle key, preset '");
+  Serial.print(p.name); Serial.println("' — scanner bypassed");
+  bool routed = false;
+  for (int k = 0; k < p.nRoutes; k++)
+    if (p.routes[k].source == SRC_PRESSURE || p.routes[k].via == SRC_PRESSURE ||
+        p.routes[k].source == SRC_POSITION || p.routes[k].via == SRC_POSITION)
+      routed = true;
+  if (!routed)
+    Serial.println("# WARNING: this preset has no pressure route. Try 'flute',"
+                   " 'theremin', 'obie' or 'shimmer'.");
+
+  synthNoteOn(2, 2, 0.78f);
+  uint32_t t0 = millis(), nextPrint = 0;
+  while (millis() - t0 < 6000) {
+    float x = (millis() - t0) / 6000.0f;
+    float press = x < 0.5f ? x * 2.0f : (1.0f - x) * 2.0f;   // 0 -> 1 -> 0
+    synthExpression(2, 2, press, press);
+    synthUpdate();
+    if (millis() > nextPrint) {
+      nextPrint = millis() + 250;
+      Serial.print("#   pressure="); Serial.print(press, 2);
+      Serial.print("  ampGain=");    Serial.print(voiceLastGain[12], 3);
+      Serial.println();
+    }
+    delay(2);
+  }
+  synthNoteOff(2, 2, 0.5f);
+  Serial.println("# sweep done. Did the sound move?");
+}
+
+uint8_t presetArticulation() { return PRESET[currentPreset].articulation; }
 
 void synthReportLoad() {
   Serial.print("# audio CPU now="); Serial.print(AudioProcessorUsage(), 1);

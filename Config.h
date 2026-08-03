@@ -37,41 +37,29 @@ const int MIDI_NOTE[5][5] = {
 const int NUM_VOICES = 25;
 
 // ---- scan timing ---------------------------------------------------------
-const uint32_t SETTLE_US = 200;   // wait after selecting a column before reading
+// Measured with the 's' settle probe: the sense line needs ~320 us to reach
+// its final value. At the old 200 us it was still 23 counts high and falling
+// at 0.33 counts/us. That offset cancels for note detection (the baseline is
+// measured the same way) but not for pressure, where 23 counts is 16% of the
+// whole usable window — and it is not even constant, because the audio ISR
+// fires every 2.9 ms and stretches this delay when it lands inside it.
+// Sampling on the flat part makes that jitter disappear.
+// Cost: the sweep goes from ~1.25 ms to ~1.95 ms, so the scan rate drops from
+// roughly 800 Hz to 510 Hz. Velocity flight times get coarser; see below.
+const uint32_t SETTLE_US = 350;   // wait after selecting a column before reading
 const int      SWEEP_COLS = 5;
 
-// ---- detection thresholds (fractions of each key's learned span) ---------
-const float ON_DEPTH        = 0.40f;
-const float OFF_DEPTH       = 0.20f;
-const float VEL_START_DEPTH = 0.15f;
-const int   RETREAT_HYST    = 15;
+// ---- diagnostics ---------------------------------------------------------
+// 500 counts is ~0.4 V: below anything a semiconductor in this signal path
+// can produce, so a reading under it means copper, not silicon.
+const uint16_t STUCK_LOW_COUNTS = 500;
 
-// ---- guards --------------------------------------------------------------
-const uint32_t OVERSHOOT_WINDOW_US = 60000;
-const uint32_t EXCURSION_MAX_US    = 250000;
-const uint32_t DESCEND_TIMEOUT_US  = 600000;
+// Detection thresholds, velocity curves and pressure tuning USED to live
+// here. They now belong to the layers that own them — GESTURE_DEFAULT in
+// Gesture.cpp and CAL_DEFAULT in Calibration.cpp — because those are covered
+// by tests, and a constant tuned outside the reach of its tests is a constant
+// that will drift away from them.
 
-// ---- pressure (continuous key depth while held) --------------------------
-// The tuning now lives in Press.cpp as PRESS_DEFAULT, because it is covered
-// by tests (test_press.cpp) that replay real captured traces. Changing it
-// here would have put the numbers out of reach of those tests.
-
-const float REL_SMOOTH = 0.12f;   // smoothing on the ascent-rate estimate
-
-// ---- release velocity ----------------------------------------------------
-// How fast the key came back up, measured as spans-per-second of ascent.
-// Snatching your hand away shortens the release; lifting gently lengthens it.
-const float REL_FAST_SPANS_PER_S = 7.0f;   // this ascent rate reads as 1.0
-const float REL_SCALE_FAST       = 0.35f;  // release time multiplier, fast
-const float REL_SCALE_SLOW       = 1.60f;  // release time multiplier, slow
-
-// ---- velocity curve ------------------------------------------------------
-const float VEL_FAST_MS = 3.0f;
-const float VEL_SLOW_MS = 200.0f;
-const float VEL_AT_FAST = 127.0f;
-const float VEL_AT_SLOW = 20.0f;
-
-const uint16_t DEFAULT_SPAN = 2250;
 
 // ---- boot ----------------------------------------------------------------
 const uint32_t SERIAL_WAIT_MS = 1200;  // no host on a power bank, so this

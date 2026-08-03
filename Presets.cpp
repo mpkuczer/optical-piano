@@ -32,14 +32,35 @@ static const ModRoute R_FLUTE[] = {
   { SRC_VELOCITY, DST_CUTOFF,   5.0f },
 };
 
-// Theremin: the player's other hand controls VOLUME, continuously. Pressure
-// is that hand. SRC_CONST pulls the floor down so pressure has room to push
-// back up: 0.45 gain at rest, 1.0 fully depressed.
+// Theremin: the player's other hand controls VOLUME, continuously, all the
+// way down to silence. SRC_CONST pulls the gain floor to ZERO and pressure
+// pushes it back up, so amplitude is nothing but key position. Combined with
+// ART_CONTINUOUS (velocity ignored, absolute position mapping) a hard strike
+// and a slow one produce exactly the same sound — the difference lives
+// entirely in where you hold your finger afterwards.
+// A theremin is one sine and nothing else. Amplitude is ABSOLUTE key
+// position — not pressure, which would measure "past where I landed" and so
+// carry the strike with it. CURVE_AUDIO is the volume-pedal taper: a linear
+// map spends only 6 dB on the entire upper half of the travel, which is why
+// leaning in felt like it did nothing.
 static const ModRoute R_THEREMIN[] = {
   { SRC_LFO1,     DST_PITCH,  45.0f },
-  { SRC_CONST,    DST_AMP,    -0.55f },
-  { SRC_PRESSURE, DST_AMP,     0.55f },
-  { SRC_PRESSURE, DST_CUTOFF,  4.0f  },
+  { SRC_CONST,    DST_AMP,    -1.00f },
+  { SRC_POSITION, DST_AMP,     1.00f, SRC_CONST, CURVE_AUDIO },
+};
+
+// The bright-swelling pad the theremin deliberately is not: the same gesture,
+// but opening a filter over a sawtooth instead of only changing level. Note
+// the two curves differ — the ear wants a taper on loudness and something
+// closer to linear on brightness, and putting the curve on the ROUTE is what
+// makes that possible from one finger.
+static const ModRoute R_SWELL[] = {
+  { SRC_CONST,    DST_AMP,    -0.85f },
+  { SRC_POSITION, DST_AMP,     0.85f, SRC_CONST, CURVE_AUDIO },
+  { SRC_POSITION, DST_CUTOFF, 34.0f },
+  { SRC_POSITION, DST_RES,     0.90f, SRC_CONST, CURVE_SQUARE },
+  { SRC_POSITION, DST_OSCB,    0.35f },
+  { SRC_LFO1,     DST_PITCH,   7.0f,  SRC_POSITION },
 };
 
 // Airy: vibrato plus a slow wobble in the second oscillator's level, so the
@@ -102,6 +123,23 @@ static const ModRoute R_NASAL[] = {
   { SRC_VELOCITY, DST_CUTOFF, 8.0f },
 };
 
+// Deliberately unsubtle, for verifying the pressure path end to end. A
+// sawtooth (harmonics to filter), a cutoff low enough that moving it is
+// obvious, and a large amplitude swing. If leaning on a key does not
+// visibly change THIS, the fault is not in preset design.
+static const ModRoute R_PRESSTEST[] = {
+  { SRC_PRESSURE, DST_CUTOFF, 36.0f },   // three octaves of brightness
+  { SRC_CONST,    DST_AMP,    -0.60f },
+  { SRC_PRESSURE, DST_AMP,     0.60f },  // quiet -> full
+};
+
+static const ModRoute R_HARPSI[] = {
+  { SRC_LFO1,     DST_PITCH,   9.0f, SRC_PRESSURE },   // finger vibrato
+  { SRC_PRESSURE, DST_CUTOFF, 10.0f },
+  { SRC_KEYTRACK, DST_CUTOFF,  4.0f },
+  { SRC_RANDOM,   DST_DETUNE,  5.0f },
+};
+
 // ---- the table -----------------------------------------------------------
 const Preset PRESET[] = {
 
@@ -110,58 +148,67 @@ const Preset PRESET[] = {
     90,  1e9f,  240, 0.85,    6.0,  6.0,  400, 0.70,
     1.00, 0.00, 0.00,
     { 5.4f, LFO_SINE, 260.0f, 300.0f }, LFO_OFF, NROUTES(R_FLUTE),
-    0.00, 0.40, 0.00,   0,   0.00 },
+    0.00, 0.40, 0.00,   0,   0.00 ,   ART_STRUCK },
 
-{ "theremin",WAVEFORM_SINE,     WAVEFORM_SINE,       0,  0.0, 0.25,
+{ "theremin",WAVEFORM_SINE,     WAVEFORM_SINE,       0,  0.0, 0.00,
    140,  1e9f,  320, 0.90,   10.0, 10.0,  400, 0.70,
     1.00, 0.00, 0.00,
     { 5.8f, LFO_SINE, 0.0f, 400.0f }, LFO_OFF, NROUTES(R_THEREMIN),
-    0.00, 0.45, 0.00,   0,   0.00 },
+    0.00, 0.45, 0.00,   0,   0.00,   ART_CONTINUOUS },
+
+// The pad. Same continuous gesture, but with harmonics for the filter to work
+// on, so leaning in changes TIMBRE and not just level — which the ear reads as
+// effort in a way that loudness alone does not.
+{ "swell",   WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  9.0, 0.45,
+    60,  1e9f,  600, 0.70,    1.8,  1.8,  400, 0.90,
+    1.00, 0.00, 0.00,
+    { 4.6f, LFO_SINE, 200.0f, 600.0f }, LFO_OFF, NROUTES(R_SWELL),
+    0.00, 0.42, 0.00,   0,   0.00,   ART_CONTINUOUS },
 
 { "airy",    WAVEFORM_SINE,     WAVEFORM_TRIANGLE,  12,  6.0, 0.18,
    110,  1e9f,  300, 0.85,    8.0,  8.0,  400, 0.70,
     1.00, 0.00, 0.00,
     { 5.2f, LFO_SINE, 300.0f, 400.0f },
     { 0.28f, LFO_TRIANGLE, 0.0f, 800.0f }, NROUTES(R_AIRY),
-    0.00, 0.45, 0.20, 260,   0.30 },
+    0.00, 0.45, 0.20, 260,   0.30 ,   ART_STRUCK },
 
 // ============================ CIRCUS 2 =====================================
 { "circus",  WAVEFORM_SAWTOOTH, WAVEFORM_SQUARE,     0,  8.8, 1.00,
      4,  1e9f,   31, 0.50,    2.0,  2.0,  500, 1.60,
     0.00, 0.00, 1.00,
     { 5.84f, LFO_SINE, 120.0f, 250.0f }, LFO_OFF, NROUTES(R_CIRCUS),
-    0.06, 0.20, 0.58, 250,   0.71 },
+    0.06, 0.20, 0.58, 250,   0.71 ,   ART_STRUCK },
 
 { "circusb", WAVEFORM_SINE,     WAVEFORM_TRIANGLE,   0,  6.0, 0.35,
      8,  1e9f,   60, 0.85,    9.0,  9.0,  400, 0.70,
     1.00, 0.00, 0.00,
     { 5.84f, LFO_SINE, 90.0f, 250.0f }, LFO_OFF, NROUTES(R_CIRCUS),
-    0.00, 0.30, 0.45, 250,   0.68 },
+    0.00, 0.30, 0.45, 250,   0.68 ,   ART_STRUCK },
 
 // ============================ ANALOG-ISH ===================================
 { "drift",   WAVEFORM_TRIANGLE, WAVEFORM_TRIANGLE,   0,  7.0, 1.00,
      4,   900,  320, 0.50,    9.0,  5.0,  500, 0.80,
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_DRIFT),
-    0.00, 0.25, 0.00,   0,   0.00 },
+    0.00, 0.25, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 { "wide",    WAVEFORM_TRIANGLE, WAVEFORM_TRIANGLE,   0, 16.0, 1.00,
      4,  1100,  400, 0.50,    8.0,  5.0,  600, 0.80,
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_DRIFT),
-    0.00, 0.32, 0.00,   0,   0.00 },
+    0.00, 0.32, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 { "obie",    WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  9.0, 1.00,
     16,  1e9f,  450, 0.42,   15.0,  4.0,  650, 1.50,
     1.00, 0.00, 0.00,
     { 5.0f, LFO_SINE, 400.0f, 500.0f }, LFO_OFF, NROUTES(R_OBIE),
-    0.15, 0.36, 0.00,   0,   0.00 },
+    0.15, 0.36, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 { "fatpluck",WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0, 13.0, 1.00,
      2,   380,  140, 0.42,   24.0,  3.0,  180, 1.60,
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_PLUCK),
-    0.10, 0.20, 0.00,   0,   0.00 },
+    0.10, 0.20, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 // ============================ NEW MOTION ===================================
 // Tremolo — volume wobble. Only possible now the matrix exists.
@@ -169,26 +216,45 @@ const Preset PRESET[] = {
     20,  1e9f,  300, 0.55,    8.0,  8.0,  400, 0.80,
     1.00, 0.00, 0.00,
     LFO_OFF, { 5.5f, LFO_SINE, 150.0f, 400.0f }, NROUTES(R_TREMOLO),
-    0.00, 0.30, 0.00,   0,   0.00 },
+    0.00, 0.30, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 // Sample-and-hold stepping the filter. Burbling and mechanical.
 { "stepped", WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  8.0, 1.00,
      4,  1e9f,  200, 0.45,    6.0,  6.0,  400, 1.80,
     1.00, 0.00, 0.00,
     LFO_OFF, { 8.0f, LFO_SAMPLE_HOLD, 0.0f, 0.0f }, NROUTES(R_STEPPED),
-    0.05, 0.30, 0.35, 200,   0.40 },
+    0.05, 0.30, 0.35, 200,   0.40 ,   ART_STRUCK },
 
 { "shimmer", WAVEFORM_PULSE,    WAVEFORM_PULSE,      0,  5.0, 1.00,
     25,  1e9f,  600, 0.42,    9.0,  7.0,  800, 1.10,
     1.00, 0.00, 0.00,
     LFO_OFF, { 0.35f, LFO_SINE, 0.0f, 600.0f }, NROUTES(R_SHIMMER),
-    0.00, 0.45, 0.00,   0,   0.00 },
+    0.00, 0.45, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 { "nasal",   WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0,  9.0, 1.00,
      6,   800,  280, 0.60,    6.0,  3.0,  350, 2.60,
     0.10, 0.90, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_NASAL),
-    0.20, 0.28, 0.20, 220,   0.25 },
+    0.20, 0.28, 0.20, 220,   0.25 ,   ART_STRUCK },
+
+// ============================ PLUCKED ======================================
+// The hybrid the whole articulation split exists for. A plectrum plucks the
+// string identically however hard the key is hit, so velocity is DISCARDED —
+// but the finger stays on the key afterwards, and that continuing motion adds
+// the vibrato. Struck trigger, expressive hold: neither a piano nor a
+// theremin, and impossible to express before gesture and sound were separated.
+{ "harpsi",  WAVEFORM_SAWTOOTH, WAVEFORM_PULSE,      0,  7.0, 0.55,
+     2,  1400,  260, 0.55,   14.0,  4.0,  240, 1.30,
+    1.00, 0.00, 0.00,
+    { 5.2f, LFO_SINE, 150.0f, 400.0f }, LFO_OFF, NROUTES(R_HARPSI),
+    0.08, 0.30, 0.00,   0,   0.00,   ART_PLUCKED },
+
+// ============================ DIAGNOSTIC ===================================
+{ "presstest", WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH, 0,  6.0, 1.00,
+     6,  1e9f,  200, 0.55,    2.0,  2.0,  400, 1.20,
+    1.00, 0.00, 0.00,
+    LFO_OFF, LFO_OFF, NROUTES(R_PRESSTEST),
+    0.00, 0.20, 0.00,   0,   0.00 ,   ART_STRUCK },
 
 // ============================ REFERENCE ====================================
 // Single oscillator, no detune, static filter, no modulation, no effects.
@@ -196,7 +262,7 @@ const Preset PRESET[] = {
      3,   700,  250, 1.00,   60.0, 60.0,  400, 0.70,
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, nullptr, 0,
-    0.00, 0.00, 0.00,   0,   0.00 },
+    0.00, 0.00, 0.00,   0,   0.00 ,   ART_STRUCK },
 };
 
 const int PRESET_COUNT = sizeof(PRESET) / sizeof(PRESET[0]);

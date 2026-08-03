@@ -13,6 +13,11 @@
 #include <Arduino.h>
 #include "ModMatrix.h"
 
+// How the instrument is PLAYED, as opposed to how it sounds — see Gesture.h
+// for what each articulation means. This says only how notes BEGIN and END.
+// What the held key then controls is decided by the route table, not here.
+#include "Gesture.h"
+
 struct Preset {
   const char *name;
 
@@ -58,6 +63,10 @@ struct Preset {
   float delaySend;      // delay send, 0..1
   float delayMs;        // delay time, ms (see DELAY_MAX_MS)
   float delayFb;        // delay feedback, 0..0.85 — how many repeats
+
+  // Last, so rows that do not mention it default to ART_CONTINUOUS... which
+  // is NOT what most presets want, so every row states it explicitly below.
+  uint8_t articulation;
 };
 
 extern const Preset PRESET[];

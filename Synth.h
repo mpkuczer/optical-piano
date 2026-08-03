@@ -13,24 +13,27 @@
 const float DELAY_MAX_MS = 350.0f;
 
 void synthBegin();                                  // build graph, start codec
-void synthNoteOn(int row, int col, int velocity);
+void synthNoteOn(int row, int col, float velocity);   // velocity 0..1
 
 // releaseVel 0..1: how fast the key came back up. Snatching your hand away
 // cuts the note short, lifting gently lets it hang. Defaulted so callers that
 // don't measure it (the preset audition) still compile.
 void synthNoteOff(int row, int col, float releaseVel = 0.5f);
 
-// Continuous key depth, 0..1, called every scan sweep while a key is held.
-// Feeds SRC_PRESSURE in the modulation matrix. This is polyphonic aftertouch
-// and it costs nothing extra — the scanner already has the number.
-void synthPressure(int row, int col, float pressure);
+// Both expression signals, pushed every sweep. `position` is absolute (0 at
+// rest, 1 at this key's bottom); `pressure` is relative to where this note
+// landed. Both feed the modulation matrix; the patch chooses which to use.
+void synthExpression(int row, int col, float position, float pressure);
 
 void synthUpdate();                                 // call often: modulation
 bool synthVoiceIdle(int row, int col);
 
 void  presetSelect(int index);
 void  presetList();
+void  presetDumpRoutes();   // what the flashed firmware actually contains
 void  presetAnnounce();
 int   presetCurrent();
+uint8_t presetArticulation();   // see Gesture.h
 
+void synthPressureTest();   // sweep pressure 0->1->0 with no scanner
 void synthReportLoad();                             // CPU and block usage

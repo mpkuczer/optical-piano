@@ -1,0 +1,16 @@
+The Arduino IDE compiles EVERY .cpp in the sketch folder. lego_piano/ must
+contain these 16 files and nothing else:
+
+  lego_piano.ino   Config.h
+  Calibration.h    Calibration.cpp
+  Gesture.h        Gesture.cpp
+  ModMatrix.h      ModMatrix.cpp
+  Preset.h         Presets.cpp
+  Scanner.h        Scanner.cpp
+  Synth.h          Synth.cpp
+  Diag.h           Diag.cpp
+
+DELETE if present from earlier versions: Press.h, Press.cpp, any test_*.cpp.
+A test file defines main() and silently replaces setup()/loop().
+
+Check:  grep -l "int main" *.cpp     (should print nothing)
