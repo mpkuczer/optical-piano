@@ -78,4 +78,10 @@ const uint16_t STUCK_LOW_COUNTS = 500;
 // ---- boot ----------------------------------------------------------------
 const uint32_t SERIAL_WAIT_MS = 1200;  // no host on a power bank, so this
                                        // always runs to its full timeout
-const uint32_t SETTLE_BOOT_MS = 250;   // let the rail settle before calibrating
+// The rail settles in milliseconds, but 25 IR LEDs run continuously and lose
+// output as their junctions warm — most of the movement is in the first few
+// seconds. Calibrating at 250 ms measured them stone cold, and every baseline
+// was wrong by the time anyone played. Tracking now absorbs the rest (see
+// Calibration.cpp), but starting closer to the settled value costs nothing
+// except a slightly longer boot.
+const uint32_t SETTLE_BOOT_MS = 3000;

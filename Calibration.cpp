@@ -7,6 +7,8 @@ const CalConfig CAL_DEFAULT = {
   /* baselineTrack */ 0.0005f,   // ~4 s at 510 Hz: far slower than a press,
                                  //   fast enough for thermal and light drift
   /* baselineGate  */ 0.04f,     // only while the key is essentially up
+  /* recoverMs     */ 20000.0f,  // 20 s of perfect stillness
+  /* recoverBelow  */ 0.35f,     // and only if it is not deeply held
   /* bottomLearn   */ 0.25f,     // symmetric. Expand-only is a ratchet, and
                                  //   this project has been bitten twice.
   /* defaultTravel */ 3200,      // measured: baselines ~4072, bottoms 300-1000
@@ -41,7 +43,7 @@ void calInit(CalKey &k, uint16_t baseline, const CalConfig &c) {
   k.raw = baseline;
   k.position = 0.0f;
   k.noteMinRaw = k.baseline;
-  k.vel = 0.0f; k.prevRaw = k.baseline; k.havePrev = false;
+  k.vel = 0.0f; k.prevRaw = k.baseline; k.havePrev = false; k.stillMs = 0.0f;
 }
 
 float calTravel(const CalKey &k) {
@@ -69,10 +71,26 @@ float calUpdate(CalKey &k, const CalConfig &c, uint16_t raw, bool noteActive) {
 
   // Track the resting level whenever the key is LOW and STATIONARY, whatever
   // the gesture layer thinks is happening. A key sitting still near its rest
-  // for seconds IS at rest, even if a note is nominally sounding — and that
-  // case is exactly the one that used to latch forever.
+  // IS at rest, even if a note is nominally sounding.
   bool still = k.vel < c.stillCounts && k.vel > -c.stillCounts;
-  if (still && pos < c.baselineGate && pos > -c.baselineGate)
+  k.stillMs = still ? (k.stillMs + 2.0f) : 0.0f;      // ~2 ms per sample
+
+  // NEGATIVE position means the reading is ABOVE the baseline, and no finger
+  // can do that — so it is drift, and there is no lower bound on following
+  // it. A symmetric window here was the bug that made the instrument need a
+  // manual recalibration after every flash: 25 IR LEDs warm up over the first
+  // minute, output falls, every reading rises past the gate, and tracking
+  // switched off permanently.
+  bool atRest = (pos < c.baselineGate);
+
+  // Last resort for the other direction, where drift pushes the reading DOWN
+  // past the trigger and a phantom note latches. Nothing musical stays
+  // perfectly motionless for twenty seconds at a shallow depth, so if it has,
+  // that is the new rest position. Deeply held keys are exempt: those are
+  // deliberate, audible notes.
+  bool stuck = (k.stillMs > c.recoverMs) && (pos < c.recoverBelow);
+
+  if (still && (atRest || stuck))
     k.baseline += c.baselineTrack * ((float)raw - k.baseline);
 
   // Expand live. Pressing further than this key has ever gone must extend the

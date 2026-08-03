@@ -132,6 +132,7 @@ void setup() {
   pinMode(ENC_SW_PIN, INPUT_PULLUP);
 #endif
 
+  Serial.println("# warming up the sensors before calibrating, hands off...");
   delay(SETTLE_BOOT_MS);
   scannerCalibrate();
 #if HAVE_ENCODER

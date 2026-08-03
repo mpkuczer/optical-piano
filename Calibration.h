@@ -22,7 +22,18 @@
 
 struct CalConfig {
   float    baselineTrack;   // EMA rate for the resting level, per sample
-  float    baselineGate;    // only track while position is below this
+  float    baselineGate;    // upward-reading side only: how far BELOW the
+                            //   baseline a stationary key may sit and still
+                            //   count as at rest. There is no limit on the
+                            //   other side — a reading ABOVE the baseline
+                            //   cannot be a finger, so it is drift by
+                            //   definition and always followed.
+  float    recoverMs;       // a stationary key shallower than recoverBelow
+                            //   for this long is re-referenced regardless.
+                            //   The last line of defence against a drift big
+                            //   enough to sit above the trigger threshold.
+  float    recoverBelow;    // ...but never for a key held deep enough to be a
+                            //   deliberate, audible note.
   float    bottomLearn;     // EMA rate for the learned bottom, per note
   uint16_t defaultTravel;   // assumed travel before a key has been played
   uint16_t minTravel;       // below this a key cannot report a press at all
@@ -44,6 +55,7 @@ struct CalKey {
   float    position;        // last computed 0..1
   float    noteMinRaw;      // deepest raw seen since the last note ended
   float    vel;             // smoothed counts per sample
+  float    stillMs;         // how long the reading has been stationary
   float    prevRaw;
   bool     havePrev;
 };

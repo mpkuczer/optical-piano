@@ -51,15 +51,39 @@ static const ModRoute R_THEREMIN[] = {
 
 // The bright-swelling pad the theremin deliberately is not: the same gesture,
 // but opening a filter over a sawtooth instead of only changing level. Note
-// the two curves differ — the ear wants a taper on loudness and something
-// closer to linear on brightness, and putting the curve on the ROUTE is what
-// makes that possible from one finger.
+// the curves differ per destination — putting the curve on the ROUTE is what
+// lets one finger drive several shapes at once.
+//
+// FLATTENED BOTTOM, LIVE TOP. This patch used to taper loudness (x^1.8) and
+// leave brightness linear, on the theory that the ear wants those different.
+// That assumed position was linear in FINGER TRAVEL, and it is not: the map
+// in Calibration is linear in ADC COUNTS, and a reflective photodarlington's
+// response over distance is anything but. The middle of the range is where
+// that compression bites, so a linear route spends most of its depth on
+// travel the player cannot resolve, and arrives at the top with nothing left.
+//
+// So every position route now uses an explicit exponent instead: the bottom
+// two thirds deliberately do almost nothing, and the last tenth — where the
+// key is close enough to occlude properly and the sensor is finally
+// sensitive — carries the swell. Rough shape of what the player gets:
+//
+//     position   0.30    0.60    0.90    1.00
+//     amp  ^4    0.16    0.26    0.71    1.00   (gain, on a 0.15 floor)
+//     cut  ^3     0.9    7.3    24.8    34.0    (semitones of cutoff)
+//
+// The middle third moves brightness ~6 semitones; the top tenth moves it ~9.
+// Retune the exponents per key feel — that is what the field is for. Below
+// about 2.5 the bottom starts speaking again; above about 5 the top becomes
+// a switch rather than a swell.
 static const ModRoute R_SWELL[] = {
   { SRC_CONST,    DST_AMP,    -0.85f },
-  { SRC_POSITION, DST_AMP,     0.85f, SRC_CONST, CURVE_AUDIO },
-  { SRC_POSITION, DST_CUTOFF, 34.0f },
-  { SRC_POSITION, DST_RES,     0.90f, SRC_CONST, CURVE_SQUARE },
-  { SRC_POSITION, DST_OSCB,    0.35f },
+  { SRC_POSITION, DST_AMP,     0.85f, SRC_CONST, CURVE_LINEAR, 4.0f },
+  { SRC_POSITION, DST_CUTOFF, 34.0f,  SRC_CONST, CURVE_LINEAR, 3.0f },
+  { SRC_POSITION, DST_RES,     0.90f, SRC_CONST, CURVE_LINEAR, 4.0f },
+  { SRC_POSITION, DST_OSCB,    0.35f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  // Vibrato still grows LINEARLY with depth: `via` is multiplied in raw and
+  // is deliberately not shaped (see modEvaluate), so there is no way to make
+  // this bloom at the top the way the routes above do. Left as it was.
   { SRC_LFO1,     DST_PITCH,   7.0f,  SRC_POSITION },
 };
 

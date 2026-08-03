@@ -20,16 +20,22 @@ static float hashToUnit(uint32_t x) {
 // Curves are defined only on 0..1. A bipolar source (an LFO) keeps its sign
 // and the shape is applied to its magnitude, so a curved LFO stays symmetric
 // instead of turning into a rectifier.
-static float applyCurve(float v, uint8_t curve) {
-  if (curve == CURVE_LINEAR) return v;
+static float applyCurve(float v, uint8_t curve, float shape) {
+  if (shape <= 0.0f && curve == CURVE_LINEAR) return v;
   float s = v < 0.0f ? -1.0f : 1.0f;
   float m = v < 0.0f ? -v : v;
-  switch (curve) {
-    case CURVE_SQUARE: m = m * m;            break;
-    case CURVE_AUDIO:  m = powf(m, 1.8f);    break;
-    case CURVE_SQRT:   m = sqrtf(m);         break;
-    case CURVE_LATE:   m = m * m * m;        break;
-    default: break;
+  if (shape > 0.0f) {
+    // A route that asks for a specific exponent pays for a powf; the enum
+    // curves keep their multiply-based paths, which is most routes.
+    m = powf(m, shape);
+  } else {
+    switch (curve) {
+      case CURVE_SQUARE: m = m * m;            break;
+      case CURVE_AUDIO:  m = powf(m, 1.8f);    break;
+      case CURVE_SQRT:   m = sqrtf(m);         break;
+      case CURVE_LATE:   m = m * m * m;        break;
+      default: break;
+    }
   }
   return s * m;
 }
@@ -118,7 +124,8 @@ void modEvaluate(const ModContext &ctx,
     if (!have[g]) { cache[g] = sourceValue(g, ctx, lfo1, lfo2, seed); have[g] = true; }
     // The curve shapes the SOURCE, not the via-multiplier: `via` scales how
     // much of the route applies, and shaping that would compound confusingly.
-    out[d] += applyCurve(cache[s], routes[i].curve) * cache[g] * routes[i].depth;
+    out[d] += applyCurve(cache[s], routes[i].curve, routes[i].shape)
+            * cache[g] * routes[i].depth;
   }
 }
 

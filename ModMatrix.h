@@ -90,6 +90,17 @@ struct ModRoute {
   uint8_t via;
   uint8_t curve;     // ModCurve. Zero (linear) by default, so three- and
                      //   four-field route tables are unaffected.
+  // Continuous exponent, OVERRIDING `curve` when non-zero. The five ModCurve
+  // values are fixed powers chosen for common musical shapes; this is the
+  // same family with the exponent as a free number, for a patch that wants a
+  // specific amount of "nothing happens until you commit". The enum tops out
+  // at x^3, which gives the last tenth of travel about 4x the expressive
+  // density of the middle third — enough for a volume taper, not enough when
+  // the sensor itself is compressed through the middle of its range.
+  //
+  // Zero means "use curve", so every existing route table is unaffected —
+  // the same append-a-defaulted-field trick as `via` and `curve` before it.
+  float   shape;
 };
 
 // ---- LFO -----------------------------------------------------------------

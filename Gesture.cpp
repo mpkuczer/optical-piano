@@ -9,14 +9,27 @@ const GestureConfig GESTURE_DEFAULT = {
   // a floor. At 0.020 the margin over crosstalk was only 1.3x: settling bleed
   // from a fully pressed key on the same row is ~0.004 of travel, and
   // measured jitter reaches ~0.011, so a held chord could trigger its
-  // neighbours. 0.060 gives 3.9x.
+  // neighbours. 0.060 gave 3.9x on those numbers.
   //
-  // This costs nothing audible BECAUSE the amplitude route uses CURVE_AUDIO:
-  // 0.060^1.8 is 0.0063, which is -44 dB. Without the taper the same
-  // threshold would start a note at -24 dB and click. The curve is what makes
-  // a safe threshold free.
-  /* contOn      */ 0.060f,
-  /* contOff     */ 0.040f,
+  // Those numbers no longer hold on this hardware: 0.060 still triggers from
+  // crosstalk in practice, so the residual is well above the ~0.004 the bleed
+  // correction was believed to leave. Raised to 0.150. Suspect CROSS_BLEED
+  // (Config.h) is stale — the 'j' probe measures it and 'k' shows the worst
+  // residual across untouched keys. Fixing it there is the real repair; this
+  // is the floor that stops false notes meanwhile.
+  //
+  // THIS IS NO LONGER FREE. The old value cost nothing audible because the
+  // amplitude route uses CURVE_AUDIO: 0.060^1.8 is 0.0063, or -44 dB. At
+  // 0.150 the taper gives 0.033, or -30 dB — 14 dB louder at onset, and
+  // heading back toward the -24 dB that clicked. If notes now announce
+  // themselves, put CURVE_LATE (x^3) on the amplitude route of the continuous
+  // patches: 0.150^3 is 0.0034, back to -49 dB.
+  /* contOn      */ 0.150f,
+  // Kept at the same 1.5:1 hysteresis as before. Raising this with contOn is
+  // not optional: crosstalk that can push a line to 0.150 can certainly hold
+  // it above 0.040, so leaving the release threshold behind would trade false
+  // starts for notes that never end while a neighbour is held.
+  /* contOff     */ 0.100f,
   /* velStart    */ 0.060f,
   /* onPos       */ 0.400f,
   /* offPos      */ 0.180f,

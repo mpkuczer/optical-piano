@@ -505,7 +505,10 @@ void presetDumpRoutes() {
     if (m.via != SRC_CONST) {
       Serial.print("  via "); Serial.print(modSourceName(m.via));
     }
-    if (m.curve != CURVE_LINEAR) {
+    // shape overrides curve, so report whichever is actually in force.
+    if (m.shape > 0.0f) {
+      Serial.print("  shape x^"); Serial.print(m.shape, 2);
+    } else if (m.curve != CURVE_LINEAR) {
       Serial.print("  curve "); Serial.print(m.curve);
     }
     Serial.println();
