@@ -357,6 +357,52 @@ void scannerFaultProbe() {
   if (!any) Serial.println("#    no faults found — everything reads sane.");
 }
 
+// ---- bridge probe --------------------------------------------------------
+// The decisive test for a shorted sensor, and it needs no meter.
+//
+// With EVERY column transistor off, no sensor has a path to ground, so no key
+// press can possibly move any row line. That is the whole point of a switched
+// matrix. If a row moves anyway while you press keys, there is a conductive
+// path that bypasses the column transistors — which is exactly what a
+// collector-emitter short is: it welds one row's sense line to one column's
+// return line permanently.
+//
+// Press keys and watch. Anything that moves is bridged.
+void scannerBridgeProbe() {
+  Serial.println("# ---- bridge probe ----");
+  Serial.println("# ALL columns are off. Nothing you press should change any");
+  Serial.println("# number below. Press keys one at a time and watch.");
+  Serial.println("#   - a row that moves when you press a key in ANOTHER");
+  Serial.println("#     column is bridged to that column's return line");
+  Serial.println("#   - the shorted sensor sits at their intersection");
+  Serial.println("# Send any character to stop.");
+  Serial.println("# row1\trow2\trow3\trow4\trow5");
+
+  deselectAll();
+  delayMicroseconds(SETTLE_US * 4);
+
+  uint16_t base[5];
+  for (int r = 0; r < 5; r++) base[r] = analogRead(ADC_PIN[r]);
+
+  uint32_t next = 0;
+  while (!Serial.available()) {
+    if (millis() < next) continue;
+    next = millis() + 150;
+    deselectAll();                    // keep them off, whatever else happens
+    Serial.print("# ");
+    for (int r = 0; r < 5; r++) {
+      uint16_t v = analogRead(ADC_PIN[r]);
+      int d = (int)v - (int)base[r];
+      Serial.print(v);
+      if (d < -40 || d > 40) { Serial.print(d > 0 ? "(+" : "("); Serial.print(d); Serial.print(")!"); }
+      Serial.print("\t");
+    }
+    Serial.println();
+  }
+  while (Serial.available()) Serial.read();
+  Serial.println("# bridge probe done.");
+}
+
 // ---- recovery probe ------------------------------------------------------
 // A shorted cell pulls its SHARED row line to 0 V whenever its column is
 // selected. Whatever is read next on that row starts its settling from zero
@@ -471,6 +517,21 @@ static void seedUnlearnedKeys() {
       pressSeedFrom(key[r][c].pressure, sw / n);
 }
 
+// Same idea for the continuous mapping: a key that has never been played in
+// theremin mode borrows a neighbour's bottom, so it responds across its whole
+// travel from the first note instead of using the generic fallback.
+static void seedAbsTops() {
+  float sw = 0.0f; int n = 0;
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++)
+      if (key[r][c].pressure.absLearned && !key[r][c].dead) {
+        sw += key[r][c].pressure.absTop; n++;
+      }
+  if (n == 0) return;
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) pressSeedAbsTop(key[r][c].pressure, sw / n);
+}
+
 // ---- continuous gesture --------------------------------------------------
 // A completely separate reading of the same sensor. No strike detection, no
 // velocity, no overshoot logic, no release arming — every one of those exists
@@ -510,6 +571,8 @@ static void feedContinuous(int r, int c, uint16_t v, Key &k) {
   synthPressure(r, c, k.press);
 
   if (depth < CONT_OFF_DEPTH) {
+    pressNoteOff(k.pressure, PRESS_DEFAULT);   // fold in this note's bottom
+    seedAbsTops();
     synthNoteOff(r, c, 0.5f);
 #if SEND_USB_MIDI
     usbMIDI.sendNoteOff(MIDI_NOTE[r][c], 0, 1);
@@ -654,10 +717,9 @@ static void feed(int r, int c, uint16_t v) {
             k.span = (uint16_t)(0.9f * k.span + 0.1f * obs);
             deriveThresholds(k);
           }
-          if (k.pressure.mode != PRESS_ABSOLUTE) {
-            pressNoteOff(k.pressure, PRESS_DEFAULT);
+          pressNoteOff(k.pressure, PRESS_DEFAULT);
+          if (k.pressure.mode != PRESS_ABSOLUTE)
             seedUnlearnedKeys();  // every key learned makes the rest usable
-          }
           k.press = 0.0f;
           k.rise_spans_s = 0.0f;
           k.state = 0;
@@ -695,6 +757,14 @@ void scannerPressureReport() {
       Serial.print("#  s");    Serial.print(r * 5 + c + 1);
       Serial.print("\t");     Serial.print(rng, 4);
       Serial.print("\t");     Serial.print((int)(rng * k.span));
+      if (k.pressure.mode == PRESS_ABSOLUTE) {
+        // Absolute mode learns no width at all — reporting "never played"
+        // here was simply wrong, and made a working theremin look broken.
+        Serial.print("\tabsolute: bottom=");
+        Serial.print(k.pressure.absTop, 3);
+        Serial.println(k.pressure.absLearned ? "" : " (fallback, not yet played)");
+        continue;
+      }
       if (!k.pressure.learned)      Serial.println("\tnever played");
       else if (k.pressure.borrowed) Serial.println("\tborrowed");
       else if (rng < 0.025f)        Serial.println("\town - NARROW, will feel coarse");

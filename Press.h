@@ -48,8 +48,12 @@ struct PressConfig {
   float stillRate;  // depth units per SECOND below which the key is "resting"
   float velTauMs;   // smoothing on the velocity estimate
   // --- absolute mode only ---
-  float absLo;      // depth that reads as 0 (above the resting noise floor)
-  float absHi;      // depth that reads as 1 (short of the mechanical stop)
+  float absLo;      // absolute floor, as a minimum
+  float absLoFrac;  // ...or this fraction of the learned top, whichever is
+                    //   larger. Expressing the floor as a FRACTION is what
+                    //   makes the mapping independent of `span`: top and
+                    //   floor then scale together and span cancels out.
+  float absHi;      // fallback top, used only until a key has been played
   float absTauMs;   // shorter: a continuous instrument must feel immediate
 };
 
@@ -61,6 +65,14 @@ struct PressState {
   bool  borrowed;    // width came from another key, so an untouched key can
                      //   respond on its first note. Replaced outright, never
                      //   averaged into, once this key has its own data.
+  float absTop;      // ABSOLUTE mode: learned depth at this key's own bottom.
+                     //   Global constants cannot work here — keys bottom out
+                     //   in different places, and `span` (which depth is
+                     //   divided by) is maintained only by the STRUCK path,
+                     //   so a few notes on a piano patch silently rescaled
+                     //   every theremin key.
+  bool  absLearned;
+  float absNoteMax;
   float noteRest;    // THIS note's zero point
   float noteMax;     // deepest point this note reached
   bool  haveRest;
@@ -78,3 +90,4 @@ void  pressNoteOff(PressState &s, const PressConfig &c);
 float pressRange(const PressState &s);
 void  pressSeedFrom(PressState &s, float width);
 void  pressSetMode(PressState &s, unsigned char mode);
+void  pressSeedAbsTop(PressState &s, float top);

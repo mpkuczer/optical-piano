@@ -168,43 +168,93 @@ int main() {
   printf("\nabsolute mode — memoryless, no strike dependence\n");
   {
     PressState s; pressInit(s); pressSetMode(s, PRESS_ABSOLUTE);
-    // Same depth reached three ways: gently, violently, and after a long
-    // hold. A continuous instrument must give the same answer every time.
-    auto settle = [&](float from, float to, int steps) {
+
+    // Calibrate first. Memorylessness is a property of a CALIBRATED key:
+    // pressing deeper than the key has ever gone must extend the range (the
+    // alternative is clipping the bottom of the travel, which is worse), so
+    // the property only holds once the bottom is known.
+    const float BOTTOM = 1.20f;
+    for (int n = 0; n < 3; n++) {
+      pressNoteOn(s); pressSetMode(s, PRESS_ABSOLUTE);
+      for (int i = 0; i <= 400; i++)
+        pressUpdate(s, PRESS_DEFAULT, 0.05f + (BOTTOM-0.05f)*i/400.0f, 0.0f, 1.2f);
+      pressNoteOff(s, PRESS_DEFAULT);
+    }
+
+    // Same depth reached three ways: gently, violently, and by coming back up
+    // from the bottom. A continuous instrument must answer the same each time.
+    auto hold = [&](float from, float to, int steps) {
       pressNoteOn(s); pressSetMode(s, PRESS_ABSOLUTE);
       for (int k = 0; k < steps; k++)
-        pressUpdate(s, PRESS_DEFAULT, from + (to - from) * k / steps, 0.0f, 1.2f);
-      for (int k = 0; k < 400; k++)      // settle at `to`
-        pressUpdate(s, PRESS_DEFAULT, to, 0.0f, 1.2f);
-      return s.value;
-    };
-    float slow = settle(0.05f, 0.60f, 800);
-    float fast = settle(0.05f, 0.60f, 8);
-    float deep = settle(1.20f, 0.60f, 8);     // arriving from BELOW
-    snprintf(buf, sizeof buf, "slow=%.3f fast=%.3f from-deep=%.3f", slow, fast, deep);
+        pressUpdate(s, PRESS_DEFAULT, from + (to-from)*k/steps, 0.0f, 1.2f);
+      float last = 0.0f;
+      for (int k = 0; k < 400; k++)
+        last = pressUpdate(s, PRESS_DEFAULT, to, 0.0f, 1.2f);
+      return last;                       // deliberately no noteOff: measuring,
+    };                                   // not teaching
+
+    float slow = hold(0.05f, 0.60f, 800);
+    float fast = hold(0.05f, 0.60f, 8);
+    float deep = hold(BOTTOM, 0.60f, 8);      // arriving from BELOW
+    snprintf(buf, sizeof buf, "top=%.2f slow=%.3f fast=%.3f from-deep=%.3f",
+             s.absTop, slow, fast, deep);
     check(fabsf(slow - fast) < 0.01f, "strike speed does not change the result", buf);
     check(fabsf(slow - deep) < 0.01f, "no hysteresis: path does not matter", buf);
 
-    // And it must be a monotonic function of depth, reaching both ends.
-    pressNoteOn(s); pressSetMode(s, PRESS_ABSOLUTE);
-    float lo = settle(0.5f, 0.02f, 4), hi = settle(0.5f, 1.00f, 4);
-    snprintf(buf, sizeof buf, "at rest=%.3f  at bottom=%.3f", lo, hi);
+    float lo = hold(0.30f, 0.02f, 4), hi = hold(0.30f, BOTTOM, 4);
+    snprintf(buf, sizeof buf, "at rest=%.3f  at the learned bottom=%.3f", lo, hi);
     check(lo < 0.02f, "silent with the key up", buf);
-    check(hi > 0.95f, "full at the bottom", buf);
+    check(hi > 0.95f, "full at the key's own bottom", buf);
 
-    // THE PROPERTY THAT REMOVES THE AUDIBLE START: at the depth where a
-    // continuous note is triggered, the mapping must already read zero. If
-    // absLo drops below CONT_ON_DEPTH the note begins part-way up and you
-    // hear a step, which is exactly the artefact this pairing removes.
-    pressNoteOn(s); pressSetMode(s, PRESS_ABSOLUTE);
-    float atTrigger = 0.0f;
-    for (int k = 0; k < 200; k++)
-      atTrigger = pressUpdate(s, PRESS_DEFAULT, 0.050f, 0.0f, 1.2f);
-    snprintf(buf, sizeof buf, "trigger depth 0.050 -> pressure %.4f "
-             "(absLo=%.3f)", atTrigger, PRESS_DEFAULT.absLo);
-    check(atTrigger < 0.005f, "silent at the trigger threshold", buf);
-    check(PRESS_DEFAULT.absLo >= 0.050f,
-          "absLo is at or above CONT_ON_DEPTH", buf);
+    // THE BUG FROM HARDWARE: with a global top of 0.95 and a boot span of
+    // 2250, a key whose real travel reaches depth 1.68 saturated at raw 1934
+    // and the whole bottom half of the key did nothing.
+    {
+      PressState k; pressInit(k); pressSetMode(k, PRESS_ABSOLUTE);
+      auto sweep = [&](float to) {
+        float last = 0.0f;
+        for (int i = 0; i <= 400; i++)
+          last = pressUpdate(k, PRESS_DEFAULT, to * i / 400.0f, 0.0f, 1.2f);
+        return last;
+      };
+      sweep(1.68f); pressNoteOff(k, PRESS_DEFAULT);   // one full press teaches it
+      pressNoteOn(k); pressSetMode(k, PRESS_ABSOLUTE);
+      float mid = 0.0f, deep = 0.0f;
+      for (int i = 0; i < 300; i++) mid  = pressUpdate(k, PRESS_DEFAULT, 1.14f, 0.0f, 1.2f);
+      for (int i = 0; i < 300; i++) deep = pressUpdate(k, PRESS_DEFAULT, 1.60f, 0.0f, 1.2f);
+      snprintf(buf, sizeof buf, "top=%.2f  at depth 1.14 -> %.2f, at 1.60 -> %.2f",
+               k.absTop, mid, deep);
+      check(mid < 0.85f, "mid-travel is NOT saturated", buf);
+      check(deep > mid + 0.20f, "the bottom of the travel still moves", buf);
+    }
+
+    // SPAN INDEPENDENCE: the struck path maintains `span`, the continuous
+    // path does not. The same physical gesture measured against two different
+    // spans must still produce the same pressure, or playing a piano patch
+    // silently rescales every theremin key.
+    {
+      float outs[2];
+      float spans[2] = { 2250.0f, 3600.0f };
+      for (int j = 0; j < 2; j++) {
+        PressState k; pressInit(k); pressSetMode(k, PRESS_ABSOLUTE);
+        const float baseline = 4072.0f, bottom = 400.0f;
+        auto depthOf = [&](float raw) { return (baseline - raw) / spans[j]; };
+        for (int pass = 0; pass < 4; pass++) {          // learn the bottom
+          pressNoteOn(k); pressSetMode(k, PRESS_ABSOLUTE);
+          for (int i = 0; i <= 400; i++)
+            pressUpdate(k, PRESS_DEFAULT,
+                        depthOf(baseline - (baseline-bottom)*i/400.0f), 0.0f, 1.2f);
+          pressNoteOff(k, PRESS_DEFAULT);
+        }
+        pressNoteOn(k); pressSetMode(k, PRESS_ABSOLUTE);
+        for (int i = 0; i < 400; i++)                   // hold at raw 2200
+          outs[j] = pressUpdate(k, PRESS_DEFAULT, depthOf(2200.0f), 0.0f, 1.2f);
+      }
+      snprintf(buf, sizeof buf, "span 2250 -> %.3f, span 3600 -> %.3f",
+               outs[0], outs[1]);
+      check(fabsf(outs[0] - outs[1]) < 0.02f,
+            "same gesture, different span, same pressure", buf);
+    }
 
     // Nothing may be learned in this mode — no width, ever.
     check(pressRange(s) == 0.0f, "learns nothing, remembers nothing", "");

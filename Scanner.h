@@ -15,6 +15,9 @@ void scannerScanOnce();   // one full sweep of all five columns
 void scannerIsolationSnapshot();  // print all 25 cells, one row per line
 void scannerSettleProbe();        // print the settling curve of one cell
 void scannerFaultProbe();         // locate shorts, dead sensors, stuck columns
+void scannerBridgeProbe();        // press keys with all columns off — nothing
+                                  //   should move. Anything that does is a
+                                  //   short bypassing the column transistors
 void scannerRecoveryProbe(int row, int col);  // how long a row takes to climb
                                   //   back after being pulled to ground
 void scannerTraceToggle();        // live pressure trace WITHOUT muting the

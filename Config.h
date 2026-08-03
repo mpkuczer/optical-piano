@@ -114,7 +114,10 @@ const float VEL_SLOW_MS = 200.0f;
 const float VEL_AT_FAST = 127.0f;
 const float VEL_AT_SLOW = 20.0f;
 
-const uint16_t DEFAULT_SPAN = 2250;
+// Measured travel on this instrument is ~3000-3700 counts (baseline ~4072
+// down to 300-1000 at full occlusion). 2250 was well short, which inflated
+// every depth reading until a key taught itself otherwise.
+const uint16_t DEFAULT_SPAN = 3200;
 
 // ---- boot ----------------------------------------------------------------
 const uint32_t SERIAL_WAIT_MS = 1200;  // no host on a power bank, so this

@@ -12,7 +12,8 @@ const PressConfig PRESS_DEFAULT = {
   /* stillRate */   0.25f,
   /* velTauMs  */  30.0f,
   /* absLo     */   0.06f,   // above resting noise
-  /* absHi     */   0.95f,   // short of the stop, where the sensor saturates
+  /* absLoFrac */   0.05f,   // or 5% of this key's own travel
+  /* absHi     */   1.30f,   // only until the key teaches us its real bottom
   /* absTauMs  */   8.0f
 };
 
@@ -22,6 +23,7 @@ static float clampf(float v, float lo, float hi) {
 
 void pressInit(PressState &s) {
   s.width = 0.0f; s.learned = false; s.borrowed = false;
+  s.absTop = 0.0f; s.absLearned = false;
   s.mode = PRESS_RELATIVE;
   pressNoteOn(s);
 }
@@ -30,6 +32,7 @@ void pressSetMode(PressState &s, unsigned char mode) { s.mode = mode; }
 
 void pressNoteOn(PressState &s) {
   s.noteRest = 0.0f; s.noteMax = 0.0f; s.haveRest = false;
+  s.absNoteMax = 0.0f;
   s.vel = 0.0f; s.lastDepth = 0.0f; s.haveLast = false; s.value = 0.0f;
 }
 
@@ -42,7 +45,18 @@ float pressUpdate(PressState &s, const PressConfig &c,
   // This is the theremin case: the sound is the position of your hand, and
   // asking "past where I landed" would be asking the wrong question.
   if (s.mode == PRESS_ABSOLUTE) {
-    float target = clampf((depth - c.absLo) / (c.absHi - c.absLo), 0.0f, 1.0f);
+    if (depth > s.absNoteMax) s.absNoteMax = depth;
+    // Expand live. Pressing further than this key has ever gone must extend
+    // the range immediately, never clip — otherwise the bottom of the travel
+    // is silent until the next note, which is the one thing a continuous
+    // instrument cannot afford.
+    if (depth > s.absTop) { s.absTop = depth; s.absLearned = true; }
+
+    float top   = s.absLearned ? s.absTop : c.absHi;
+    float floor = c.absLo > c.absLoFrac * top ? c.absLo : c.absLoFrac * top;
+    float rng   = top - floor;
+    float target = (rng > 0.01f)
+                 ? clampf((depth - floor) / rng, 0.0f, 1.0f) : 0.0f;
     float a = (c.absTauMs > 0.0f) ? dtMs / (c.absTauMs + dtMs) : 1.0f;
     s.value += clampf(a, 0.0f, 1.0f) * (target - s.value);
     return s.value;
@@ -88,6 +102,14 @@ float pressUpdate(PressState &s, const PressConfig &c,
 }
 
 void pressNoteOff(PressState &s, const PressConfig &c) {
+  if (s.mode == PRESS_ABSOLUTE) {
+    // Symmetric, so the top can come back DOWN too. An expand-only rule is a
+    // ratchet, and this project has been bitten by one twice already.
+    if (s.absNoteMax > 0.0f && s.absLearned)
+      s.absTop += c.learnRate * (s.absNoteMax - s.absTop);
+    s.value = 0.0f;
+    return;
+  }
   if (s.haveRest) {
     float obs = s.noteMax - s.noteRest;
     if (obs > c.heldBand) obs = c.heldBand;   // not a lean; do not believe it
@@ -102,6 +124,11 @@ void pressNoteOff(PressState &s, const PressConfig &c) {
     // either, or playing normally for a while would switch pressure off.
   }
   s.value = 0.0f;
+}
+
+void pressSeedAbsTop(PressState &s, float top) {
+  if (s.absLearned || top <= 0.0f) return;
+  s.absTop = top; s.absLearned = true;
 }
 
 void pressSeedFrom(PressState &s, float width) {
