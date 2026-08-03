@@ -2,6 +2,7 @@
 // Press.cpp — see Press.h for the design and why it is shaped this way
 // ============================================================================
 #include "Press.h"
+#include <math.h>
 
 const PressConfig PRESS_DEFAULT = {
   /* settleMs  */  60.0f,
@@ -14,7 +15,8 @@ const PressConfig PRESS_DEFAULT = {
   /* absLo     */   0.06f,   // above resting noise
   /* absLoFrac */   0.05f,   // or 5% of this key's own travel
   /* absHi     */   1.30f,   // only until the key teaches us its real bottom
-  /* absTauMs  */   8.0f
+  /* absTauMs  */   8.0f,
+  /* absGamma  */   1.8f
 };
 
 static float clampf(float v, float lo, float hi) {
@@ -57,6 +59,8 @@ float pressUpdate(PressState &s, const PressConfig &c,
     float rng   = top - floor;
     float target = (rng > 0.01f)
                  ? clampf((depth - floor) / rng, 0.0f, 1.0f) : 0.0f;
+    if (c.absGamma > 0.0f && c.absGamma != 1.0f && target > 0.0f)
+      target = powf(target, c.absGamma);
     float a = (c.absTauMs > 0.0f) ? dtMs / (c.absTauMs + dtMs) : 1.0f;
     s.value += clampf(a, 0.0f, 1.0f) * (target - s.value);
     return s.value;

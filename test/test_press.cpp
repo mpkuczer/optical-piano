@@ -256,6 +256,28 @@ int main() {
             "same gesture, different span, same pressure", buf);
     }
 
+    // The taper must keep the endpoints exact and stay monotonic — a curve
+    // that fails either is a bug, not a preference.
+    {
+      PressState k; pressInit(k); pressSetMode(k, PRESS_ABSOLUTE);
+      for (int i = 0; i <= 400; i++)
+        pressUpdate(k, PRESS_DEFAULT, 1.20f*i/400.0f, 0.0f, 1.2f);
+      pressNoteOff(k, PRESS_DEFAULT);
+      float prev = -1.0f; bool mono = true;
+      for (int i = 0; i <= 20; i++) {
+        pressNoteOn(k); pressSetMode(k, PRESS_ABSOLUTE);
+        float v = 0.0f;
+        for (int j = 0; j < 300; j++)
+          v = pressUpdate(k, PRESS_DEFAULT, 1.20f*i/20.0f, 0.0f, 1.2f);
+        if (v < prev - 1e-4f) mono = false;
+        prev = v;
+      }
+      snprintf(buf, sizeof buf, "gamma=%.1f, top of curve = %.3f",
+               PRESS_DEFAULT.absGamma, prev);
+      check(mono, "taper is monotonic", buf);
+      check(prev > 0.98f, "taper still reaches full scale", buf);
+    }
+
     // Nothing may be learned in this mode — no width, ever.
     check(pressRange(s) == 0.0f, "learns nothing, remembers nothing", "");
   }

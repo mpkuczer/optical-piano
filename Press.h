@@ -55,6 +55,12 @@ struct PressConfig {
                     //   floor then scale together and span cancels out.
   float absHi;      // fallback top, used only until a key has been played
   float absTauMs;   // shorter: a continuous instrument must feel immediate
+  float absGamma;   // curve on the mapped value. 1.0 is linear, which FEELS
+                    //   flat at the top: perceived loudness goes as roughly
+                    //   amplitude^0.6, so a linear map spends only 6 dB on
+                    //   the whole upper half of the travel. ~1.8 restores an
+                    //   audio taper — the same reason volume pedals are not
+                    //   linear — and gives leaning in somewhere to go.
 };
 
 extern const PressConfig PRESS_DEFAULT;

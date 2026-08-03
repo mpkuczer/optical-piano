@@ -38,10 +38,24 @@ static const ModRoute R_FLUTE[] = {
 // GESTURE_CONTINUOUS (velocity ignored, absolute depth mapping) a hard strike
 // and a slow one produce exactly the same sound — the difference lives
 // entirely in where you hold your finger afterwards.
+// Amplitude alone reads as a volume knob. Every acoustic instrument gets
+// BRIGHTER as it gets louder, and the ear reads that correlation as effort —
+// which is why the accidental clipping felt expressive and clean amplitude
+// does not. So pressure now brings in a second, harmonically rich oscillator
+// and opens the filter at the same time: pure sine when barely touched,
+// growing reed-like as you lean.
+//
+// mixB is 0.60 in the preset so the gain normalisation reserves headroom for
+// it, and SRC_CONST pulls it back to zero at rest. Remove the OSCB and CUTOFF
+// rows to get the pure-sine theremin back.
 static const ModRoute R_THEREMIN[] = {
   { SRC_LFO1,     DST_PITCH,  45.0f },
   { SRC_CONST,    DST_AMP,    -1.00f },
   { SRC_PRESSURE, DST_AMP,     1.00f },
+  { SRC_CONST,    DST_OSCB,   -0.60f },
+  { SRC_PRESSURE, DST_OSCB,    0.60f },
+  { SRC_PRESSURE, DST_CUTOFF, 30.0f  },
+  { SRC_PRESSURE, DST_RES,     1.10f },
 };
 
 // Airy: vibrato plus a slow wobble in the second oscillator's level, so the
@@ -124,8 +138,8 @@ const Preset PRESET[] = {
     { 5.4f, LFO_SINE, 260.0f, 300.0f }, LFO_OFF, NROUTES(R_FLUTE),
     0.00, 0.40, 0.00,   0,   0.00 },
 
-{ "theremin",WAVEFORM_SINE,     WAVEFORM_SINE,       0,  0.0, 0.25,
-   140,  1e9f,  320, 0.90,   10.0, 10.0,  400, 0.70,
+{ "theremin",WAVEFORM_SINE,     WAVEFORM_SAWTOOTH,   0,  0.0, 0.60,
+   140,  1e9f,  320, 0.90,    2.2,  2.2,  400, 0.70,
     1.00, 0.00, 0.00,
     { 5.8f, LFO_SINE, 0.0f, 400.0f }, LFO_OFF, NROUTES(R_THEREMIN),
     0.00, 0.45, 0.00,   0,   0.00,   GESTURE_CONTINUOUS },
