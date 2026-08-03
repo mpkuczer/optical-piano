@@ -238,8 +238,35 @@ void scannerFaultProbe() {
     Serial.println();
   }
 
-  // 3) Verdict.
-  Serial.println("# 3) verdict:");
+  // 3) Per-row illumination. All 25 LEDs are permanently on, five per row
+  // through one 220R. If a row's shared LED feed is damaged its sensors
+  // conduct less, so they sit HIGHER and their travel shrinks — the whole row
+  // goes weak and twitchy without any single key looking broken.
+  Serial.println("# 3) per-row level with LEDs on (higher = less light):");
+  long rowMean[5];
+  long allMean = 0;
+  for (int r = 0; r < 5; r++) {
+    long sum = 0;
+    for (int c = 0; c < 5; c++) sum += m[r][c];
+    rowMean[r] = sum / 5;
+    allMean += rowMean[r];
+  }
+  allMean /= 5;
+  for (int r = 0; r < 5; r++) {
+    Serial.print("#    row "); Serial.print(r + 1);
+    Serial.print(" mean = ");  Serial.print(rowMean[r]);
+    long d = rowMean[r] - allMean;
+    Serial.print("  (");
+    if (d >= 0) Serial.print("+");
+    Serial.print(d); Serial.print(" vs other rows)");
+    if (d > 400)
+      Serial.println("   <<< dim: check this row's 220R and LED feed");
+    else
+      Serial.println("");
+  }
+
+  // 4) Verdict.
+  Serial.println("# 4) verdict:");
   bool any = false;
   for (int r = 0; r < 5; r++) {
     if (rowFault[r]) {
@@ -285,7 +312,49 @@ void scannerFaultProbe() {
       any = true;
     }
   }
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 4; c++)
+      if (m[r][c] < STUCK_LOW_COUNTS && m[r][c + 1] >= STUCK_LOW_COUNTS) {
+        Serial.print("#    s"); Serial.print(r * 5 + c + 2);
+        Serial.println(" is read immediately after a stuck-low cell on the");
+        Serial.println("#      same row, so its line starts settling from 0 V.");
+        Serial.print("#      Run the recovery probe (y) on row ");
+        Serial.print(r + 1);
+        Serial.print(" column "); Serial.print(c + 1);
+        Serial.println(" to see whether SETTLE_US covers it.");
+        any = true;
+      }
   if (!any) Serial.println("#    no faults found — everything reads sane.");
+}
+
+// ---- recovery probe ------------------------------------------------------
+// A shorted cell pulls its SHARED row line to 0 V whenever its column is
+// selected. Whatever is read next on that row starts its settling from zero
+// instead of from near full scale, so a single dead sensor puts a per-key
+// offset on its row-mates — which is what a whole row "suffering" while only
+// one key is dead actually looks like.
+//
+// This measures it directly: ground the row through the suspect column, then
+// release and watch it climb. Compare the curve against SETTLE_US.
+void scannerRecoveryProbe(int row, int col) {
+  Serial.print("# recovery probe: row "); Serial.print(row + 1);
+  Serial.print(", pulling through column ");  Serial.println(col + 1);
+  Serial.print("# SETTLE_US is "); Serial.print(SETTLE_US);
+  Serial.println(". If the curve has not flattened by then, every key read");
+  Serial.println("# after this column on this row is biased low.");
+  Serial.println("# us,adc");
+
+  selectColumn(col);
+  delayMicroseconds(SETTLE_US * 4);        // let it reach its pulled-down level
+  deselectAll();                            // release: recovery starts now
+
+  uint32_t t0 = micros();
+  for (int i = 0; i < 120; i++) {
+    uint32_t want = t0 + (uint32_t)i * 20;
+    while ((int32_t)(micros() - want) < 0) {}
+    Serial.print(i * 20); Serial.print(",");
+    Serial.println(analogRead(ADC_PIN[row]));
+  }
 }
 
 void scannerSettleProbe() {
