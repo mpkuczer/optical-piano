@@ -46,11 +46,31 @@ static const LfoConfig LFO_OFF = { 0.0f, LFO_SINE, 0.0f, 0.0f };
 //
 // Revert by putting SRC_PRESSURE back in both places and dropping the shape.
 static const ModRoute R_FLUTE[] = {
-  // Vibrato that BLOOMS with depth. `via` is multiplied in RAW — it is never
-  // shaped (see modEvaluate) — so this one does grow linearly from the moment
-  // the note lands, unlike the cutoff route. The LFO's own 260 ms delay and
-  // 300 ms fade cover the onset, which is what makes that acceptable here.
-  { SRC_LFO1,     DST_PITCH,   26.0f, SRC_POSITION },
+  // Vibrato that BLOOMS with depth — note the source and via are SWAPPED
+  // relative to the obvious spelling, and that is the whole trick.
+  //
+  // modEvaluate computes curve(source) * via * depth, and only the SOURCE is
+  // shaped. Written the obvious way round — LFO as source, position as via —
+  // position multiplies in raw and linear, and vibrato is then a near-constant
+  // fraction of a held note's depth: moving 0.6 -> 0.7 changes it by 17%,
+  // which is not a playable gesture. That is what made this feel dead.
+  //
+  // Multiplication commutes, so putting POSITION in the source slot lets it
+  // take an exponent while the LFO rides along as the multiplier, giving
+  // lfo * position^3 * 30. The LFO keeps its own sign (applyCurve shapes
+  // magnitude only), so the vibrato stays symmetric.
+  //
+  // This is what `pressure` was really providing here, and it was not the
+  // rest-point subtraction: pressure divides by a learned `width` capped at
+  // 0.10, so a 10% lean drove it 0 -> 1. That division is an expression
+  // AMPLIFIER, and position has no equivalent. The exponent buys the leverage
+  // back, at the cost of asking for a deeper push than the old lean. Total
+  // peak deviation, both pitch routes summed, LFO at full fade:
+  //     position  0.50   0.70   0.90   1.00
+  //     cents      9.8   16.3   27.9   36.0
+  // Measured, not estimated — the arithmetic is a host test away, since
+  // ModMatrix compiles with plain g++.
+  { SRC_POSITION, DST_PITCH,   30.0f, SRC_LFO1, CURVE_LINEAR, 3.0f },
   { SRC_LFO1,     DST_PITCH,    6.0f },   // a little always present
   // Depth raised 7 -> 9 because x^4 spends most of the range doing nothing;
   // set it back to 7.0 if you want a like-for-like A/B against pressure.
