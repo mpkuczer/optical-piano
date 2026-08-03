@@ -31,6 +31,10 @@
 
 CalKey       calKey[5][5];
 GestureState gest[5][5];
+// The reading as the ADC actually returned it, before bleed removal. Needed
+// to MEASURE the coupling coefficient — calKey[].raw holds the corrected
+// value, and measuring a correction with its own output is circular.
+uint16_t     rawMeasured[5][5];
 
 static uint32_t nowUs = 0;
 
@@ -161,6 +165,7 @@ void scannerScanOnce() {
     uint16_t v[5];
     scanReadColumn(c, v);
     for (int r = 0; r < 5; r++) {
+      rawMeasured[r][c] = v[r];
       uint16_t corrected = calRemoveBleed(v[r], prevRow[r], CROSS_BLEED);
       prevRow[r] = v[r];               // the RAW value is what the line held
       v[r] = corrected;

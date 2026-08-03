@@ -155,6 +155,60 @@ void diagCrosstalkProbe() {
   }
 }
 
+// ---- bleed coefficient probe ---------------------------------------------
+// Measures CROSS_BLEED instead of guessing it.
+//
+// Hold one key to the bottom. Its row-neighbour in the NEXT column is read
+// immediately afterwards, off the same line, and whatever it reports below
+// its own baseline is the bleed. Since
+//     measured = baseline + (held - baseline) * k
+// the coefficient falls straight out. Uses the PRE-correction readings: you
+// cannot measure a correction with its own output.
+void diagBleedProbe() {
+  Serial.println("# ---- bleed coefficient probe ----");
+  Serial.println("# Press ONE key all the way down and hold it. Do not touch");
+  Serial.println("# its neighbour. Any character stops.");
+
+  double sumK = 0.0; long n = 0;
+  float  worstK = 0.0f;
+
+  while (!Serial.available()) {
+    scannerScanOnce();
+    for (int r = 0; r < 5; r++)
+      for (int c = 0; c < 4; c++) {          // c+1 must exist
+        const CalKey &held = calKey[r][c];
+        const CalKey &next = calKey[r][c + 1];
+        if (held.position < 0.75f) continue;         // not pressed hard enough
+        if (next.position > 0.25f) continue;         // neighbour is being held
+        float P = (float)rawMeasured[r][c];
+        float B = next.baseline;
+        float M = (float)rawMeasured[r][c + 1];
+        if (B - P < 500.0f) continue;                // no excursion to measure
+        float k = (B - M) / (B - P);
+        if (k < -0.2f || k > 0.5f) continue;         // nonsense
+        sumK += k; n++;
+        if (k > worstK) worstK = k;
+      }
+  }
+  while (Serial.available()) Serial.read();
+
+  if (n < 50) {
+    Serial.print("# not enough samples ("); Serial.print(n);
+    Serial.println("). Hold a key FULLY down, leaving its neighbour alone.");
+    return;
+  }
+  float mean = (float)(sumK / (double)n);
+  Serial.print("# samples: ");        Serial.println(n);
+  Serial.print("# mean k = ");        Serial.print(mean, 4);
+  Serial.print("   worst k = ");      Serial.println(worstK, 4);
+  Serial.print("# CROSS_BLEED is currently "); Serial.println(CROSS_BLEED, 4);
+  Serial.println("# Set CROSS_BLEED in Config.h to the WORST value, not the");
+  Serial.println("# mean: under-correcting leaves phantom notes, and over-");
+  Serial.println("# correcting only adds a little noise.");
+  Serial.print("#   const float CROSS_BLEED = ");
+  Serial.print(worstK, 4); Serial.println("f;");
+}
+
 // ---- per-key report ------------------------------------------------------
 void diagKeyReport() {
   Serial.println("# per-key calibration");

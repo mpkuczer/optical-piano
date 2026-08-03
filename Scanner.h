@@ -26,3 +26,4 @@ void scanReadColumn(int c, uint16_t out[5]);
 // note state machine at all.
 extern CalKey       calKey[5][5];
 extern GestureState gest[5][5];
+extern uint16_t     rawMeasured[5][5];   // pre-correction ADC readings

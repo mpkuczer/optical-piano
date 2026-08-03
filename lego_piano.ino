@@ -29,6 +29,7 @@
 //   t    live trace (keeps playing)
 //   w    per-key calibration report
 //   k    crosstalk probe (hold one key, see what the others report)
+//   j    bleed probe — measures CROSS_BLEED and prints the value to set
 //   i    isolation snapshot   x  fault probe   z  bridge probe   s  settle probe
 //   P    pressure sweep with the scanner bypassed
 //   q    stop scanning (useful when chasing noise)
@@ -108,6 +109,7 @@ static void handleCommand(char ch) {
     case 't': diagTraceToggle();         break;
     case 'w': diagKeyReport();           break;
     case 'k': diagCrosstalkProbe();      break;
+    case 'j': diagBleedProbe();          break;
     case 'i': diagIsolationSnapshot();   break;
     case 'x': diagFaultProbe();          break;
     case 'z': diagBridgeProbe();         break;

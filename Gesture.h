@@ -58,6 +58,14 @@ struct GestureConfig {
   // guards
   float retreatHyst;
   float maxDescentMs;
+  uint8_t onSamples;    // consecutive samples over the threshold before a
+  uint8_t offSamples;   //   CONTINUOUS note starts, and under it before one
+                        //   ends. Rows are shared, so a neighbour moving fast
+                        //   puts a one- or two-sample spike on the line that
+                        //   the bleed correction cannot model — it assumes a
+                        //   static equilibrium. No finger produces a 4 ms
+                        //   press, so requiring persistence costs nothing and
+                        //   rejects every transient of that shape.
 };
 
 extern const GestureConfig GESTURE_DEFAULT;
@@ -77,6 +85,7 @@ struct GestureState {
   bool    havePrev;
   float   velStartMs;
   float   vel;                // smoothed d(position)/dt, per second
+  uint8_t overCount, underCount;
 
   // --- outputs ---
   float   position;           // smoothed absolute position

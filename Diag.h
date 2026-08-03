@@ -9,6 +9,7 @@ void diagTraceToggle();      // live pipeline state WITHOUT muting the instrumen
 void diagServiceTrace();     // call once per sweep
 void diagKeyReport();        // learned travel and lean width, per key
 void diagCrosstalkProbe();   // how much a held key bleeds into the others
+void diagBleedProbe();       // MEASURE the CROSS_BLEED coefficient
 
 void diagIsolationSnapshot();
 void diagFaultProbe();       // shorts, dead sensors, jitter, verdict

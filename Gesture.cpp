@@ -32,7 +32,9 @@ const GestureConfig GESTURE_DEFAULT = {
   /* widthLearn  */ 0.25f,
   /* smoothTauMs */ 8.0f,
   /* retreatHyst */ 0.025f,
-  /* maxDescentMs*/ 600.0f
+  /* maxDescentMs*/ 600.0f,
+  /* onSamples   */ 3,       // ~8 ms at a 370 Hz scan
+  /* offSamples  */ 3
 };
 
 static float clampf(float v, float lo, float hi) {
@@ -45,6 +47,7 @@ void gestureInit(GestureState &g) {
   g.noteOnMs = 0.0f;
   g.prevPos = 0.0f; g.prevMs = 0.0f; g.havePrev = false;
   g.velStartMs = 0.0f; g.vel = 0.0f;
+  g.overCount = 0; g.underCount = 0;
   g.position = 0.0f; g.pressure = 0.0f; g.strike = 0.5f;
   g.restPos = 0.0f; g.haveRest = false; g.noteMaxPos = 0.0f;
   g.width = 0.0f; g.widthLearned = false; g.widthBorrowed = false;
@@ -126,6 +129,7 @@ static void beginNote(GestureState &g, GestureEvent &e, float vel, float nowMs,
   g.strike = vel;
   g.noteOnMs = nowMs;
   g.haveRest = false; g.noteMaxPos = 0.0f; g.pressure = 0.0f;
+  g.overCount = 0; g.underCount = 0;
   g.phase = GP_SOUNDING;
   e.noteOn = true; e.velocity = vel;
 }
@@ -135,6 +139,7 @@ static void endNote(GestureState &g, const GestureConfig &c,
   learnWidth(g, c);
   g.phase = GP_IDLE;
   g.pressure = 0.0f;
+  g.overCount = 0; g.underCount = 0;
   e.noteOff = true; e.releaseVel = releaseVel; e.noteEnded = true;
 }
 
@@ -171,8 +176,14 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
       if (!triggered) {
         // No critical point, no velocity, no descent phase. The note simply
         // begins when the key leaves rest, silent at that instant because the
-        // patch maps position to amplitude.
-        if (pos > onLv) beginNote(g, e, 0.5f, nowMs, art);
+        // patch maps position to amplitude — but only once the reading has
+        // PERSISTED, so a crosstalk spike cannot start it.
+        if (pos > onLv) {
+          if (g.overCount < 255) g.overCount++;
+        } else {
+          g.overCount = 0;
+        }
+        if (g.overCount >= c.onSamples) beginNote(g, e, 0.5f, nowMs, art);
       } else if (pos > c.velStart) {
         g.velStartMs = (g.havePrev && g.prevPos <= c.velStart)
                      ? crossingTime(g.prevPos, g.prevMs, pos, nowMs, c.velStart)
@@ -203,7 +214,14 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
       // GATED ignores everything after the start by definition.
       if (g.noteArt != ART_GATED)
         updatePressure(g, c, pos, nowMs - g.noteOnMs, dtMs);
+      // The same persistence on the way out, so a downward transient cannot
+      // chop a held note.
       if (pos < offLv) {
+        if (g.underCount < 255) g.underCount++;
+      } else {
+        g.underCount = 0;
+      }
+      if (g.underCount >= (heldTriggered ? 1 : c.offSamples)) {
         // Release speed: how fast the key came back up, in position per
         // second. Negative velocity means rising.
         float rel = clampf(-g.vel / 4.0f, 0.0f, 1.0f);

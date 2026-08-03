@@ -56,7 +56,11 @@ const uint32_t SETTLE_US = 500;
 // Fraction of the previous column's reading that survives into this one, on
 // the same row: exp(-SETTLE_US / tau). Measure it with the 'k' probe, which
 // prints the implied value. Set to 0 to disable the correction entirely.
-const float CROSS_BLEED = 0.016f;   // wait after selecting a column before reading
+// 0.016 was derived from a tau estimated off a small-excursion settle probe,
+// and it was wrong: with a key held at 0.97 the residual on its row-neighbour
+// implied k = 0.047, so only a third of the bleed was being removed. Measure
+// it on YOUR hardware with the 'j' probe rather than trusting this number.
+const float CROSS_BLEED = 0.047f;   // wait after selecting a column before reading
 const int      SWEEP_COLS = 5;
 
 // ---- diagnostics ---------------------------------------------------------
