@@ -28,6 +28,7 @@
 //   a    audio CPU and memory
 //   t    live trace (keeps playing)
 //   w    per-key calibration report
+//   k    crosstalk probe (hold one key, see what the others report)
 //   i    isolation snapshot   x  fault probe   z  bridge probe   s  settle probe
 //   P    pressure sweep with the scanner bypassed
 //   q    stop scanning (useful when chasing noise)
@@ -106,6 +107,7 @@ static void handleCommand(char ch) {
     case 'a': synthReportLoad();         break;
     case 't': diagTraceToggle();         break;
     case 'w': diagKeyReport();           break;
+    case 'k': diagCrosstalkProbe();      break;
     case 'i': diagIsolationSnapshot();   break;
     case 'x': diagFaultProbe();          break;
     case 'z': diagBridgeProbe();         break;

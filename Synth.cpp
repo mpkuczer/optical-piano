@@ -516,10 +516,14 @@ void presetDumpRoutes() {
                           : "#   -> NO position/pressure route: the held key does nothing");
   // Worst-case level check, since silent clipping is the least obvious way
   // for a patch to sound wrong.
+  // Sum ALL amplitude routes, not just the positive ones. A patch that pulls
+  // the floor to zero with SRC_CONST and pushes back up with SRC_POSITION has
+  // a maximum of 1.0, not 2.0, and counting only the positive half reported a
+  // clip that cannot happen.
   float ampMod = 0.0f;
   for (int k = 0; k < q.nRoutes; k++)
-    if (q.routes[k].dest == DST_AMP && q.routes[k].depth > 0.0f)
-      ampMod += q.routes[k].depth;
+    if (q.routes[k].dest == DST_AMP) ampMod += q.routes[k].depth;
+  if (ampMod < 0.0f) ampMod = 0.0f;
   float peak = q.ampScale * (1.0f + q.mixB) * (1.0f + ampMod);
   Serial.print("#   headroom: peak voice sum = "); Serial.print(peak, 3);
   Serial.println(peak > 1.0f

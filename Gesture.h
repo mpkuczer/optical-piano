@@ -11,8 +11,10 @@
 //               pure function of where your finger is now.
 //   STRUCK      piano. Detect the descent, time the flight, latch a velocity.
 //               What happens afterwards does not matter.
-//   GATED       organ. Schmitt trigger, no velocity, no continuing
-//               expression. Audible start, nothing else.
+//   GATED       organ. Schmitt trigger, no velocity, no PRESSURE. Absolute
+//               position is still reported, because "where is the key" is
+//               always a meaningful question — a drawbar per key needs it,
+//               and an organ's stops are not a pressure gesture.
 //   PLUCKED     harpsichord. Trigger on crossing but DISCARD velocity — a
 //               plectrum plucks identically however hard you hit it — then
 //               keep reading position, so the finger can still add vibrato.

@@ -140,6 +140,65 @@ static const ModRoute R_HARPSI[] = {
   { SRC_RANDOM,   DST_DETUNE,  5.0f },
 };
 
+// ============================ SHOWCASE =====================================
+// Four patches built around the one thing this instrument can do that no
+// conventional keyboard can: twenty-five INDEPENDENT continuous streams,
+// under one hand, at the same time. The test for each was "could a keyboard
+// with perfect polyphonic aftertouch do this?" — if yes, it isn't a showcase.
+
+// CHORDTUNE — retune each note of a held chord with your fingers.
+// Equal temperament is a compromise: a just major third is 14 cents flat of
+// ET, a just minor third 16 cents sharp, the harmonic seventh 31 cents flat.
+// Position spans about +/-26 cents around neutral, so you can hold a triad
+// and push each note until the beating stops. You are tuning by ear, in real
+// time, per voice. Plucked, so the strike gets the note going and then leaves
+// the key entirely to your ear.
+static const ModRoute R_CHORDTUNE[] = {
+  { SRC_CONST,    DST_PITCH, -60.0f },
+  { SRC_POSITION, DST_PITCH,  85.0f },
+  { SRC_KEYTRACK, DST_CUTOFF,  3.0f },
+};
+
+// DRAWBAR — a Hammond has nine drawbars for the WHOLE instrument. This gives
+// every key its own. The second oscillator is a nineteenth up (octave plus
+// fifth, the classic 2 2/3' drawbar), brought in by depth with a square curve
+// so it arrives late and deliberately. Hold a chord, lean on one note, and
+// that note alone grows a fifth. Gated: no velocity, hard onset, organ
+// behaviour — the expression is entirely in where the keys sit.
+static const ModRoute R_DRAWBAR[] = {
+  { SRC_CONST,    DST_OSCB,  -0.70f },
+  { SRC_POSITION, DST_OSCB,   0.70f, SRC_CONST, CURVE_SQUARE },
+  { SRC_POSITION, DST_CUTOFF, 8.0f },
+};
+
+// REED — a wind instrument's note does not exist below a certain effort, and
+// changes character when you push past it. Amplitude follows position with an
+// audio taper; the octave partial arrives on a CUBIC curve, so almost nothing
+// happens until you really commit and then the note opens up and strains
+// upward. Vibrato appears only under depth, as a player's does.
+static const ModRoute R_REED[] = {
+  { SRC_CONST,    DST_AMP,   -1.00f },
+  { SRC_POSITION, DST_AMP,    1.00f, SRC_CONST, CURVE_AUDIO },
+  { SRC_CONST,    DST_OSCB,  -0.55f },
+  { SRC_POSITION, DST_OSCB,   0.55f, SRC_CONST, CURVE_LATE },
+  { SRC_POSITION, DST_CUTOFF, 30.0f },
+  { SRC_LFO1,     DST_PITCH,  14.0f, SRC_POSITION },
+};
+
+// BOWED — the family this instrument is really suited to. A bow has no
+// attack: loudness and brightness both follow the arm, together, and that
+// correlation is most of what makes a bow sound like a bow. Resonance rises
+// with depth so hard bowing gets that pinched, pressed quality. Per-note
+// random detune keeps a chord from sounding like one machine.
+static const ModRoute R_BOWED[] = {
+  { SRC_CONST,    DST_AMP,   -0.95f },
+  { SRC_POSITION, DST_AMP,    0.95f, SRC_CONST, CURVE_SQUARE },
+  { SRC_POSITION, DST_CUTOFF, 40.0f },
+  { SRC_POSITION, DST_RES,     0.80f, SRC_CONST, CURVE_SQUARE },
+  { SRC_LFO1,     DST_PITCH,  10.0f, SRC_POSITION },
+  { SRC_RANDOM,   DST_DETUNE,  4.0f },
+};
+
 // ---- the table -----------------------------------------------------------
 const Preset PRESET[] = {
 
@@ -248,6 +307,31 @@ const Preset PRESET[] = {
     1.00, 0.00, 0.00,
     { 5.2f, LFO_SINE, 150.0f, 400.0f }, LFO_OFF, NROUTES(R_HARPSI),
     0.08, 0.30, 0.00,   0,   0.00,   ART_PLUCKED },
+
+// ============================ SHOWCASE =====================================
+{ "chordtune",WAVEFORM_TRIANGLE, WAVEFORM_TRIANGLE,  0,  3.0, 0.80,
+    30,  1e9f,  400, 0.55,    7.0,  7.0,  400, 0.75,
+    1.00, 0.00, 0.00,
+    LFO_OFF, LFO_OFF, NROUTES(R_CHORDTUNE),
+    0.00, 0.35, 0.00,   0,   0.00,   ART_PLUCKED },
+
+{ "drawbar", WAVEFORM_SINE,     WAVEFORM_SINE,      19,  0.0, 0.70,
+     8,  1e9f,  120, 0.80,   12.0, 12.0,  400, 0.70,
+    1.00, 0.00, 0.00,
+    LFO_OFF, LFO_OFF, NROUTES(R_DRAWBAR),
+    0.00, 0.30, 0.00,   0,   0.00,   ART_GATED },
+
+{ "reed",    WAVEFORM_SAWTOOTH, WAVEFORM_SQUARE,    12,  5.0, 0.55,
+    40,  1e9f,  250, 0.65,    1.6,  1.6,  400, 1.60,
+    1.00, 0.00, 0.00,
+    { 5.6f, LFO_SINE, 300.0f, 500.0f }, LFO_OFF, NROUTES(R_REED),
+    0.05, 0.35, 0.00,   0,   0.00,   ART_CONTINUOUS },
+
+{ "bowed",   WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH,   0, 11.0, 1.00,
+    30,  1e9f,  350, 0.50,    1.5,  1.5,  400, 1.20,
+    1.00, 0.00, 0.00,
+    { 5.0f, LFO_SINE, 400.0f, 700.0f }, LFO_OFF, NROUTES(R_BOWED),
+    0.00, 0.40, 0.00,   0,   0.00,   ART_CONTINUOUS },
 
 // ============================ DIAGNOSTIC ===================================
 { "presstest", WAVEFORM_SAWTOOTH, WAVEFORM_SAWTOOTH, 0,  6.0, 1.00,

@@ -5,8 +5,18 @@
 #include <math.h>
 
 const GestureConfig GESTURE_DEFAULT = {
-  /* contOn      */ 0.020f,   // just above the noise floor. A continuous
-  /* contOff     */ 0.012f,   //   instrument must have no critical point.
+  // A continuous instrument must have no critical POINT, but it still needs
+  // a floor. At 0.020 the margin over crosstalk was only 1.3x: settling bleed
+  // from a fully pressed key on the same row is ~0.004 of travel, and
+  // measured jitter reaches ~0.011, so a held chord could trigger its
+  // neighbours. 0.060 gives 3.9x.
+  //
+  // This costs nothing audible BECAUSE the amplitude route uses CURVE_AUDIO:
+  // 0.060^1.8 is 0.0063, which is -44 dB. Without the taper the same
+  // threshold would start a note at -24 dB and click. The curve is what makes
+  // a safe threshold free.
+  /* contOn      */ 0.060f,
+  /* contOff     */ 0.040f,
   /* velStart    */ 0.060f,
   /* onPos       */ 0.400f,
   /* offPos      */ 0.180f,

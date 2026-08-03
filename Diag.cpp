@@ -23,6 +23,9 @@
 #include "Scanner.h"
 #include "Synth.h"
 
+// Keys quieter than this are not worth a column in the trace.
+static const float TRACE_FLOOR = 0.010f;
+
 // ---- live trace ----------------------------------------------------------
 // Runs alongside normal scanning, so the instrument keeps playing while you
 // watch. Every number below is read straight out of the pipeline's own state.
@@ -33,9 +36,10 @@ void diagTraceToggle() {
   traceOn = !traceOn;
   if (!traceOn) { Serial.println("# trace off"); return; }
   Serial.println("# trace ON — play and lean, sound keeps running");
-  Serial.println("#  key\traw\tbase\tpos\tpress\ttravel\twidth\tphase");
-  Serial.println("#  (pos is ABSOLUTE 0..1; press is RELATIVE to where this");
-  Serial.println("#   note landed. A patch routes one, the other, or both.)");
+  Serial.println("# every key off its rest, as position 0..1.");
+  Serial.println("# a STAR means that key is actually sounding.");
+  Serial.println("# a starred key you are not touching is a false trigger;");
+  Serial.println("# an unstarred neighbour with a reading is crosstalk.");
 }
 
 void diagServiceTrace() {
@@ -43,30 +47,84 @@ void diagServiceTrace() {
   uint32_t now = millis();
   if (now < traceNext) return;
 
-  int br = -1, bc = -1;
-  float best = 0.0f;
-  for (int r = 0; r < 5; r++)
-    for (int c = 0; c < 5; c++)
-      if (gest[r][c].phase == GP_SOUNDING && calKey[r][c].position >= best) {
-        best = calKey[r][c].position; br = r; bc = c;
-      }
-  if (br < 0) return;
-  traceNext = now + 40;
+  // EVERY key that is off its rest, not just the deepest one. A single-key
+  // view cannot show a chord, and it cannot show crosstalk at all — which is
+  // the whole reason you would be watching. Keys actually sounding are
+  // starred; keys merely showing a reading are not, and a starred key you are
+  // not touching is a false trigger.
+  bool any = false;
+  for (int r = 0; r < 5 && !any; r++)
+    for (int c = 0; c < 5 && !any; c++)
+      if (calKey[r][c].position > TRACE_FLOOR || gest[r][c].phase == GP_SOUNDING)
+        any = true;
+  if (!any) return;
+  traceNext = now + 60;
 
-  const CalKey &k = calKey[br][bc];
-  const GestureState &g = gest[br][bc];
-  Serial.print("#  s"); Serial.print(br * 5 + bc + 1);
-  Serial.print("\t");   Serial.print(k.raw);
-  Serial.print("\t");   Serial.print(k.baseline, 0);
-  Serial.print("\t");   Serial.print(g.position, 3);
-  Serial.print("\t");   Serial.print(g.pressure, 3);
-  Serial.print("\t");   Serial.print(calTravel(k), 0);
-  Serial.print("\t");   Serial.print(gestureWidth(g), 4);
-  Serial.print("\t");   Serial.print(k.borrowed ? "borrowed" : (k.learned ? "own" : "new"));
-  Serial.print("  ");
-  int bars = (int)(g.position * 30.0f);
-  for (int i = 0; i < bars; i++) Serial.print('#');
+  Serial.print("# ");
+  for (int r = 0; r < 5; r++)
+    for (int c = 0; c < 5; c++) {
+      const CalKey &k = calKey[r][c];
+      bool sounding = gest[r][c].phase == GP_SOUNDING;
+      if (k.position <= TRACE_FLOOR && !sounding) continue;
+      Serial.print("s");   Serial.print(r * 5 + c + 1);
+      Serial.print(sounding ? "*=" : "=");
+      Serial.print(k.position, 2);
+      Serial.print("  ");
+    }
   Serial.println();
+}
+
+// ---- crosstalk probe -----------------------------------------------------
+// Hold ONE key and watch what the other twenty-four report. In a properly
+// isolated matrix they report nothing: a sensor can only pull its row down
+// while its own column is grounded. Anything they do report is bleed — most
+// likely a row line that has not finished settling before the next column is
+// read — and the trigger threshold has to sit well above it.
+void diagCrosstalkProbe() {
+  Serial.println("# ---- crosstalk probe ----");
+  Serial.println("# Press and HOLD one key. Move to another and hold. Cover a");
+  Serial.println("# few. Any character stops and prints the worst case seen.");
+
+  float peak[5][5];
+  int   heldR = -1, heldC = -1;
+  for (int r = 0; r < 5; r++) for (int c = 0; c < 5; c++) peak[r][c] = 0.0f;
+
+  while (!Serial.available()) {
+    scannerScanOnce();
+    float best = 0.35f;                 // what counts as "the key being held"
+    for (int r = 0; r < 5; r++)
+      for (int c = 0; c < 5; c++)
+        if (calKey[r][c].position > best) { best = calKey[r][c].position; heldR = r; heldC = c; }
+    if (heldR < 0) continue;
+    for (int r = 0; r < 5; r++)
+      for (int c = 0; c < 5; c++) {
+        if (r == heldR && c == heldC) continue;
+        if (calKey[r][c].position > peak[r][c]) peak[r][c] = calKey[r][c].position;
+      }
+  }
+  while (Serial.available()) Serial.read();
+
+  Serial.println("# worst position seen on a key while a DIFFERENT key was held:");
+  float worst = 0.0f;
+  for (int r = 0; r < 5; r++) {
+    Serial.print("#   ");
+    for (int c = 0; c < 5; c++) {
+      Serial.print("s"); Serial.print(r * 5 + c + 1);
+      Serial.print("="); Serial.print(peak[r][c], 3); Serial.print("  ");
+      if (peak[r][c] > worst) worst = peak[r][c];
+    }
+    Serial.println();
+  }
+  Serial.print("# worst bleed = "); Serial.print(worst, 3);
+  Serial.print(" of travel. The continuous trigger is at ");
+  Serial.print(GESTURE_DEFAULT.contOn, 3); Serial.println(".");
+  if (worst * 2.5f > GESTURE_DEFAULT.contOn) {
+    Serial.println("# TOO CLOSE. Raise contOn in Gesture.cpp to at least");
+    Serial.print("#   "); Serial.print(worst * 2.5f, 3);
+    Serial.println("  — the audio taper keeps that inaudible anyway.");
+  } else {
+    Serial.println("# Comfortable margin: bleed cannot trigger a note.");
+  }
 }
 
 // ---- per-key report ------------------------------------------------------
