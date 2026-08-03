@@ -242,13 +242,20 @@ void scannerFaultProbe() {
   // through one 220R. If a row's shared LED feed is damaged its sensors
   // conduct less, so they sit HIGHER and their travel shrinks — the whole row
   // goes weak and twitchy without any single key looking broken.
-  Serial.println("# 3) per-row level with LEDs on (higher = less light):");
+  Serial.println("# 3) per-row resting level, stuck cells excluded:");
+  Serial.println("#    NOTE this measures resting OCCLUSION as much as LED");
+  Serial.println("#    brightness — a row whose flags sit deeper reads lower");
+  Serial.println("#    with perfectly good LEDs. Treat it as a hint only.");
+  // Stuck-low cells MUST be excluded. One dead sensor reading 74 drags its
+  // own row's average down by ~800 counts and makes a perfectly bright row
+  // look dim — which is precisely the false alarm this produced on row 3.
   long rowMean[5];
   long allMean = 0;
   for (int r = 0; r < 5; r++) {
-    long sum = 0;
-    for (int c = 0; c < 5; c++) sum += m[r][c];
-    rowMean[r] = sum / 5;
+    long sum = 0; int n = 0;
+    for (int c = 0; c < 5; c++)
+      if (m[r][c] >= STUCK_LOW_COUNTS) { sum += m[r][c]; n++; }
+    rowMean[r] = n ? sum / n : 0;
     allMean += rowMean[r];
   }
   allMean /= 5;
@@ -265,8 +272,31 @@ void scannerFaultProbe() {
       Serial.println("");
   }
 
-  // 4) Verdict.
-  Serial.println("# 4) verdict:");
+  // 4) Jitter. Amplitude in continuous mode follows depth directly, so
+  // sample-to-sample noise on a key becomes amplitude modulation at the scan
+  // rate — around 510 Hz, which the ear hears as a buzzy, gritty edge rather
+  // than as noise. This measures the spread that causes it.
+  Serial.println("# 4) jitter, 16 reads per cell (peak-to-peak counts):");
+  for (int r = 0; r < 5; r++) {
+    Serial.print("#    ");
+    for (int c = 0; c < 5; c++) {
+      uint16_t lo = 65535, hi = 0;
+      for (int i = 0; i < 16; i++) {
+        uint16_t v[5]; readColumn(c, v);
+        if (v[r] < lo) lo = v[r];
+        if (v[r] > hi) hi = v[r];
+      }
+      Serial.print("s"); Serial.print(r * 5 + c + 1);
+      Serial.print("=");  Serial.print(hi - lo);
+      Serial.print(hi - lo > 40 ? "! " : "  ");
+    }
+    Serial.println();
+  }
+  Serial.println("#    Under ~10 is clean. Over ~40 is flagged and will be");
+  Serial.println("#    audible as buzz on any continuous patch.");
+
+  // 5) Verdict.
+  Serial.println("# 5) verdict:");
   bool any = false;
   for (int r = 0; r < 5; r++) {
     if (rowFault[r]) {
@@ -337,6 +367,27 @@ void scannerFaultProbe() {
 // This measures it directly: ground the row through the suspect column, then
 // release and watch it climb. Compare the curve against SETTLE_US.
 void scannerRecoveryProbe(int row, int col) {
+  // Locate the stuck-low cell and probe THAT. Passing the wrong column pulls
+  // through a healthy sensor, which barely moves the line, and produces a
+  // flat trace that looks like good news. It is not; it is a measurement of
+  // nothing.
+  int fr = -1, fc = -1;
+  for (int c = 0; c < 5 && fr < 0; c++) {
+    uint16_t v[5]; readColumn(c, v);
+    for (int r = 0; r < 5; r++)
+      if (v[r] < STUCK_LOW_COUNTS) { fr = r; fc = c; break; }
+  }
+  if (fr >= 0) {
+    if (fr != row || fc != col) {
+      Serial.print("# overriding: the stuck cell is s");
+      Serial.print(fr * 5 + fc + 1);
+      Serial.println(", probing that instead");
+    }
+    row = fr; col = fc;
+  } else {
+    Serial.println("# no stuck-low cell found; probing as requested");
+  }
+
   Serial.print("# recovery probe: row "); Serial.print(row + 1);
   Serial.print(", pulling through column ");  Serial.println(col + 1);
   Serial.print("# SETTLE_US is "); Serial.print(SETTLE_US);
