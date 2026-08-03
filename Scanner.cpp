@@ -151,9 +151,20 @@ void scannerAllNotesOff() {
 void scannerScanOnce() {
   const uint8_t art = presetArticulation();
 
+  // The previous column's reading for each row, so the settling bleed can be
+  // subtracted. Rows are shared, and a key pressed to the bottom in one
+  // column drags the next column's reading on that row down with it — enough
+  // to trigger a continuous note on a key nobody is touching.
+  static uint16_t prevRow[5] = { 4095, 4095, 4095, 4095, 4095 };
+
   for (int c = 0; c < 5; c++) {
     uint16_t v[5];
     scanReadColumn(c, v);
+    for (int r = 0; r < 5; r++) {
+      uint16_t corrected = calRemoveBleed(v[r], prevRow[r], CROSS_BLEED);
+      prevRow[r] = v[r];               // the RAW value is what the line held
+      v[r] = corrected;
+    }
     nowUs = micros();
     float nowMs = nowUs * 0.001f;
 

@@ -46,7 +46,17 @@ const int NUM_VOICES = 25;
 // Sampling on the flat part makes that jitter disappear.
 // Cost: the sweep goes from ~1.25 ms to ~1.95 ms, so the scan rate drops from
 // roughly 800 Hz to 510 Hz. Velocity flight times get coarser; see below.
-const uint32_t SETTLE_US = 350;   // wait after selecting a column before reading
+// Raised from 350 after the crosstalk measurement: the row line's time
+// constant is ~121 us, not the ~64 us a small-excursion settle probe
+// suggested, so 350 us left ~5.6% of a full excursion bleeding into the next
+// column on the same row. 500 us cuts that to 1.6% and the deconvolution
+// below removes what remains. Scan rate drops from ~510 Hz to ~370 Hz.
+const uint32_t SETTLE_US = 500;
+
+// Fraction of the previous column's reading that survives into this one, on
+// the same row: exp(-SETTLE_US / tau). Measure it with the 'k' probe, which
+// prints the implied value. Set to 0 to disable the correction entirely.
+const float CROSS_BLEED = 0.016f;   // wait after selecting a column before reading
 const int      SWEEP_COLS = 5;
 
 // ---- diagnostics ---------------------------------------------------------

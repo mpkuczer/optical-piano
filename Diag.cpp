@@ -118,8 +118,15 @@ void diagCrosstalkProbe() {
   Serial.print("# worst bleed = "); Serial.print(worst, 3);
   Serial.print(" of travel. The continuous trigger is at ");
   Serial.print(GESTURE_DEFAULT.contOn, 3); Serial.println(".");
+  Serial.print("# CROSS_BLEED is currently "); Serial.println(CROSS_BLEED, 4);
   if (worst * 2.5f > GESTURE_DEFAULT.contOn) {
-    Serial.println("# TOO CLOSE. Raise contOn in Gesture.cpp to at least");
+    // Residual bleed after correction implies the coefficient is too small.
+    // Scale it by how far over we are, which is the first-order estimate.
+    float suggest = CROSS_BLEED + worst;
+    Serial.println("# TOO CLOSE. Either raise CROSS_BLEED in Config.h to about");
+    Serial.print("#   "); Serial.print(suggest, 4);
+    Serial.println("  (residual bleed says the coefficient is too small),");
+    Serial.println("# or raise SETTLE_US, or raise contOn in Gesture.cpp to");
     Serial.print("#   "); Serial.print(worst * 2.5f, 3);
     Serial.println("  — the audio taper keeps that inaudible anyway.");
   } else {

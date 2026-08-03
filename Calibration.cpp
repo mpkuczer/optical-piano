@@ -20,6 +20,14 @@ static float clampf(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
+uint16_t calRemoveBleed(uint16_t measured, uint16_t previousSameRow, float k) {
+  if (k <= 0.0f || k >= 0.5f) return measured;      // nonsense k: do nothing
+  float t = ((float)measured - k * (float)previousSameRow) / (1.0f - k);
+  if (t < 0.0f) t = 0.0f;
+  if (t > 4095.0f) t = 4095.0f;
+  return (uint16_t)(t + 0.5f);
+}
+
 void calInit(CalKey &k, uint16_t baseline, const CalConfig &c) {
   k.baseline = (float)baseline;
   // A bottom below zero is not reachable, so a key whose resting level is

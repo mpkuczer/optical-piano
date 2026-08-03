@@ -48,6 +48,22 @@ struct CalKey {
   bool     havePrev;
 };
 
+// ---- crosstalk removal ---------------------------------------------------
+// Rows are shared. When a column is selected the row line starts settling
+// from wherever the PREVIOUS column left it, and with a finite settle time it
+// does not fully arrive. A key pressed hard in one column therefore drags the
+// reading of the next column ON THE SAME ROW downward — measured at ~140
+// counts on this instrument, which is above the continuous trigger threshold.
+// That is why holding s7 made s8 speak, and why the gated organ patch, whose
+// threshold is seven times higher, showed nothing.
+//
+// It is a first-order settle, so it inverts exactly:
+//     measured = true + (previous - true) * k
+//     true     = (measured - k * previous) / (1 - k)
+// with k = exp(-SETTLE_US / tau). One multiply-add per sample, and unlike
+// raising SETTLE_US it costs no scan rate — which is velocity resolution.
+uint16_t calRemoveBleed(uint16_t measured, uint16_t previousSameRow, float k);
+
 void  calInit(CalKey &k, uint16_t baseline, const CalConfig &c);
 
 // Feed one reading. `noteActive` says a note is in progress, and is used ONLY
