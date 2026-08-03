@@ -17,6 +17,23 @@ static float hashToUnit(uint32_t x) {
   return (float)(x & 0xFFFFFF) / 8388607.5f - 1.0f;   // -1..1
 }
 
+// Curves are defined only on 0..1. A bipolar source (an LFO) keeps its sign
+// and the shape is applied to its magnitude, so a curved LFO stays symmetric
+// instead of turning into a rectifier.
+static float applyCurve(float v, uint8_t curve) {
+  if (curve == CURVE_LINEAR) return v;
+  float s = v < 0.0f ? -1.0f : 1.0f;
+  float m = v < 0.0f ? -v : v;
+  switch (curve) {
+    case CURVE_SQUARE: m = m * m;            break;
+    case CURVE_AUDIO:  m = powf(m, 1.8f);    break;
+    case CURVE_SQRT:   m = sqrtf(m);         break;
+    case CURVE_LATE:   m = m * m * m;        break;
+    default: break;
+  }
+  return s * m;
+}
+
 static float clampf(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -73,6 +90,7 @@ static float sourceValue(uint8_t src, const ModContext &c,
     case SRC_RANDOM:   return c.randomv;
     case SRC_NOTEAGE:  return clampf(c.ageMs / NOTEAGE_FULL_MS, 0.0f, 1.0f);
     case SRC_PRESSURE: return c.pressure;
+    case SRC_POSITION: return c.position;
     default:           return 0.0f;
   }
 }
@@ -98,13 +116,15 @@ void modEvaluate(const ModContext &ctx,
     if (g >= NUM_SOURCES) g = SRC_CONST;
     if (!have[s]) { cache[s] = sourceValue(s, ctx, lfo1, lfo2, seed); have[s] = true; }
     if (!have[g]) { cache[g] = sourceValue(g, ctx, lfo1, lfo2, seed); have[g] = true; }
-    out[d] += cache[s] * cache[g] * routes[i].depth;
+    // The curve shapes the SOURCE, not the via-multiplier: `via` scales how
+    // much of the route applies, and shaping that would compound confusingly.
+    out[d] += applyCurve(cache[s], routes[i].curve) * cache[g] * routes[i].depth;
   }
 }
 
 static const char *SRC_NAMES[NUM_SOURCES] = {
   "const", "velocity", "keytrack", "ampenv", "filtenv",
-  "lfo1", "lfo2", "lfo1uni", "random", "noteage", "pressure"
+  "lfo1", "lfo2", "lfo1uni", "random", "noteage", "pressure", "position"
 };
 static const char *DST_NAMES[NUM_DESTS] = {
   "pitch", "detune", "cutoff", "amp", "pwm", "res", "oscB"

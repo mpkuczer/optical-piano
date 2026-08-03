@@ -105,8 +105,6 @@ const float REL_SMOOTH = 0.12f;   // smoothing on the ascent-rate estimate
 // How fast the key came back up, measured as spans-per-second of ascent.
 // Snatching your hand away shortens the release; lifting gently lengthens it.
 const float REL_FAST_SPANS_PER_S = 7.0f;   // this ascent rate reads as 1.0
-const float REL_SCALE_FAST       = 0.35f;  // release time multiplier, fast
-const float REL_SCALE_SLOW       = 1.60f;  // release time multiplier, slow
 
 // ---- velocity curve ------------------------------------------------------
 const float VEL_FAST_MS = 3.0f;
@@ -123,3 +121,4 @@ const uint16_t DEFAULT_SPAN = 3200;
 const uint32_t SERIAL_WAIT_MS = 1200;  // no host on a power bank, so this
                                        // always runs to its full timeout
 const uint32_t SETTLE_BOOT_MS = 250;   // let the rail settle before calibrating
+

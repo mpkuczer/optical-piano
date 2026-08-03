@@ -33,11 +33,20 @@ enum ModSource : uint8_t {
   SRC_RANDOM,      // -1..1, fixed for the life of one note. This is how you
                    //   fake analog drift: every note is slightly different.
   SRC_NOTEAGE,     // 0..1 ramp over NOTEAGE_FULL_MS since the note started
-  SRC_PRESSURE,    // 0..1, CONTINUOUS key depth beyond the trigger point.
-                   //   Unlike every other source this keeps changing while
-                   //   you hold the key, because the optical sensors report
-                   //   position and not just on/off. Polyphonic: each key
-                   //   has its own value.
+  SRC_PRESSURE,    // 0..1, key depth RELATIVE to where this note landed
+                   //   after its strike. "How much am I leaning past where I
+                   //   started." Strike depth cancels out.
+  SRC_POSITION,    // 0..1, ABSOLUTE key depth: 0 at rest, 1 at this key's own
+                   //   learned bottom. Nothing per-note, nothing remembered.
+                   //   A theremin is this and only this.
+                   //
+                   //   These two are the same sensor read two ways, and both
+                   //   are always computed. Choosing between them used to be
+                   //   a MODE in the sensing layer, which meant the sensing
+                   //   layer had to know which preset was loaded — and that
+                   //   upward dependency is how a piano patch ended up
+                   //   rescaling every theremin key. It is now a routing
+                   //   decision, made here, by the patch.
   NUM_SOURCES
 };
 
@@ -55,6 +64,21 @@ enum ModDest : uint8_t {
   NUM_DESTS
 };
 
+// Shape applied to a source before it is scaled by depth. A taper is a
+// MUSICAL decision, not a calibration one: a theremin wants an audio taper on
+// amplitude (perceived loudness goes as roughly amplitude^0.6, so a linear
+// map spends only 6 dB on the whole upper half of the travel) while the same
+// finger driving a filter usually wants linear. Putting the curve on the
+// route lets one gesture do both.
+enum ModCurve : uint8_t {
+  CURVE_LINEAR = 0,
+  CURVE_SQUARE,      // x^2   — slow start, dramatic top. Audio-taper-ish.
+  CURVE_AUDIO,       // x^1.8 — the volume-pedal curve
+  CURVE_SQRT,        // x^0.5 — fast start, gentle top
+  CURVE_LATE,        // x^3   — almost nothing until you really commit
+  NUM_CURVES
+};
+
 struct ModRoute {
   uint8_t source;
   uint8_t dest;
@@ -64,6 +88,8 @@ struct ModRoute {
   // multiply. Left at SRC_CONST (which is always 1.0) a route behaves
   // exactly as before, so existing three-field tables are unaffected.
   uint8_t via;
+  uint8_t curve;     // ModCurve. Zero (linear) by default, so three- and
+                     //   four-field route tables are unaffected.
 };
 
 // ---- LFO -----------------------------------------------------------------
@@ -93,7 +119,8 @@ struct ModContext {
   float filtEnv;     // 0..1
   float ageMs;       // since note on
   float randomv;     // -1..1, drawn once per note
-  float pressure;    // 0..1, updated continuously while the key is held
+  float pressure;    // 0..1 relative to where this note landed
+  float position;    // 0..1 absolute key depth
   float lfoPhase;    // 0..1 CYCLES of head start for this voice's LFOs.
                      //   Without it, every note in a chord struck together
                      //   wobbles in lockstep, which sounds like one machine

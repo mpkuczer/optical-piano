@@ -1,27 +1,27 @@
 // ============================================================================
-// Scanner.h — the key-sensing side
+// Scanner.h — the matrix, and the wiring between Calibration and Gesture
 // ============================================================================
-// Reads the 5x5 photodarlington matrix, decides when a key has been struck,
-// and measures how fast it was struck. Knows nothing about sound: it calls
-// synthNoteOn/synthNoteOff and that's the whole interface.
+// Knows nothing about sound. Reads the 5x5 photodarlington matrix, runs each
+// key through Calibration then Gesture, and forwards the results to Synth.
 #pragma once
 #include <Arduino.h>
+#include "Calibration.h"
+#include "Gesture.h"
 
-void scannerBegin();      // set pin modes
-void scannerCalibrate();  // learn resting levels — hands OFF the keys
-void scannerResetSpans(); // forget learned key travel, back to defaults
-void scannerScanOnce();   // one full sweep of all five columns
+void scannerBegin();
+void scannerCalibrate();          // learn resting levels — hands OFF the keys
+void scannerResetCalibration();   // forget learned travel and widths
+void scannerScanOnce();           // one full sweep of all five columns
 
-void scannerIsolationSnapshot();  // print all 25 cells, one row per line
-void scannerSettleProbe();        // print the settling curve of one cell
-void scannerFaultProbe();         // locate shorts, dead sensors, stuck columns
-void scannerBridgeProbe();        // press keys with all columns off — nothing
-                                  //   should move. Anything that does is a
-                                  //   short bypassing the column transistors
-void scannerRecoveryProbe(int row, int col);  // how long a row takes to climb
-                                  //   back after being pulled to ground
-void scannerTraceToggle();        // live pressure trace WITHOUT muting the
-                                  //   instrument — scanning and sound carry on
-void scannerPressureReport();     // learned width for every key
-void scannerPressureMonitor();    // live depth of a held key — is there any
-                                  //   travel left after the note fires?
+// Matrix primitives, exposed so Diag.cpp can probe the hardware directly
+// WITHOUT reimplementing anything above them.
+void scanSelectColumn(int c);
+void scanDeselectAll();
+void scanReadColumn(int c, uint16_t out[5]);
+
+// Live state, read-only for diagnostics. A diagnostic that recomputes what
+// the pipeline computes will eventually disagree with it, and then it lies —
+// which cost us four rounds of debugging on a monitor that never ran the
+// note state machine at all.
+extern CalKey       calKey[5][5];
+extern GestureState gest[5][5];

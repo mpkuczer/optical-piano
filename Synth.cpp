@@ -25,6 +25,7 @@
 // ============================================================================
 #include <Audio.h>
 #include "Config.h"
+#include "Gesture.h"
 #include "Preset.h"
 #include "Synth.h"
 #include "ModMatrix.h"
@@ -41,6 +42,11 @@ static const float    FILT_MAX_HZ = 15000.0f;
 // the cutoff and the effects add more, so the raw voice sum needs headroom
 // well below unity. If it's too quiet, raise sgtl.volume() instead — that is
 // analog gain applied AFTER the digital summing, so it cannot clip.
+// Release-time scaling from release velocity. A sound property, so it lives
+// with the synth rather than in the hardware config.
+static const float REL_SCALE_FAST = 0.35f;   // snatched away: cut it short
+static const float REL_SCALE_SLOW = 1.60f;   // lifted gently: let it hang
+
 static const float MIX1_GAIN = 0.32f;
 static const float MIX2_GAIN = 0.60f;
 static const float VERB_ROOM = 0.72f;
@@ -83,7 +89,8 @@ static float    voiceKeytrk[NUM_VOICES];// -1..1, for SRC_KEYTRACK
 static float    voiceRand[NUM_VOICES];  // -1..1, drawn once per note
 static uint32_t voiceSeed[NUM_VOICES];  // sample-and-hold seed
 static float    voiceResBase[NUM_VOICES];
-static float    voicePress[NUM_VOICES];   // 0..1, updated while key is held
+static float    voicePress[NUM_VOICES];   // relative, 0..1
+static float    voicePos[NUM_VOICES];     // absolute, 0..1
 static float    voiceLfoPh[NUM_VOICES];   // 0..1 cycles of LFO head start
 static float    voiceRelease[NUM_VOICES]; // ms, after release-velocity scaling
 static bool     voiceReleased[NUM_VOICES];
@@ -242,16 +249,17 @@ void synthBegin() {
 }
 
 // ---- notes ---------------------------------------------------------------
-void synthNoteOn(int row, int col, int velocity) {
+void synthNoteOn(int row, int col, float velocity) {
   int i = row * 5 + col;
-  float v = velocity / 127.0f;
+  float v = clampf(velocity, 0.0f, 1.0f);
   const Preset &p = PRESET[currentPreset];
   // In continuous mode the strike carries no information: loudness is key
   // POSITION, delivered later through pressure. Baking velocity into the
   // amplitude here is exactly what made a hard strike leave a loud floor
   // that leaning out could never get below.
-  bool cont = (p.gesture == GESTURE_CONTINUOUS);
-  if (cont) v = 0.5f;
+  // The articulation already decided whether velocity means anything — see
+  // Gesture.cpp, which hands us 0.5 when it does not. Nothing to re-decide.
+  bool cont = (p.articulation == ART_CONTINUOUS);
   float amp = cont ? p.ampScale
                    : (0.06f + 0.84f * powf(v, 1.4f)) * p.ampScale;
   // Both oscillators feed vmix at gain 1.0, so the voice's peak is
@@ -282,10 +290,9 @@ void synthNoteOn(int row, int col, int velocity) {
   voiceRand[i]     = nextRandomBipolar();
   voiceSeed[i]     = rngState;
   voiceResBase[i]  = p.res;
-  // Continuous voices keep whatever pressure the scanner has already
-  // reported, so the note opens from the key's real position instead of
-  // jumping up from zero.
-  if (!cont) voicePress[i] = 0.0f;
+  // Expression is pushed every sweep, including before this note began, so
+  // the voice opens at the key's real level rather than jumping up from zero.
+  voicePress[i] = 0.0f;
   voiceReleased[i] = false;
   voiceRelease[i]  = p.r;
   // Golden-ratio stride: 25 voices spread almost perfectly evenly around the
@@ -315,6 +322,7 @@ void synthNoteOn(int row, int col, int velocity) {
     ctx.ageMs    = 0.0f;
     ctx.randomv  = voiceRand[i];
     ctx.pressure = voicePress[i];
+    ctx.position = voicePos[i];
     ctx.lfoPhase = voiceLfoPh[i];
     float mod0[NUM_DESTS];
     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod0);
@@ -361,8 +369,9 @@ void synthNoteOff(int row, int col, float releaseVel) {
   env[i].noteOff();
 }
 
-void synthPressure(int row, int col, float pressure) {
+void synthExpression(int row, int col, float position, float pressure) {
   int i = row * 5 + col;
+  voicePos[i] = clampf(position, 0.0f, 1.0f);
   if (!voiceReleased[i]) voicePress[i] = clampf(pressure, 0.0f, 1.0f);
 }
 
@@ -411,6 +420,7 @@ void synthUpdate() {
     ctx.ageMs    = dt;
     ctx.randomv  = voiceRand[i];
     ctx.pressure = voicePress[i];
+    ctx.position = voicePos[i];
     ctx.lfoPhase = voiceLfoPh[i];
     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod);
 
@@ -475,9 +485,13 @@ void presetDumpRoutes() {
   Serial.print("# routes for preset "); Serial.print(currentPreset);
   Serial.print(" '"); Serial.print(q.name); Serial.print("' (");
   Serial.print(q.nRoutes); Serial.print(" routes, gesture ");
-  Serial.println(q.gesture == GESTURE_CONTINUOUS
-                 ? "CONTINUOUS — velocity ignored, absolute key position"
-                 : "STRUCK — velocity sets loudness, pressure is relative");
+  switch (q.articulation) {
+    case ART_CONTINUOUS: Serial.println("CONTINUOUS (no trigger point, no velocity)"); break;
+    case ART_STRUCK:     Serial.println("STRUCK (velocity from flight time)");         break;
+    case ART_GATED:      Serial.println("GATED (no velocity, no held expression)");    break;
+    case ART_PLUCKED:    Serial.println("PLUCKED (velocity discarded, held expression)"); break;
+    default:             Serial.println("?");                                          break;
+  }
   if (q.nRoutes == 0 || q.routes == nullptr) {
     Serial.println("#   (none)");
     return;
@@ -491,11 +505,15 @@ void presetDumpRoutes() {
     if (m.via != SRC_CONST) {
       Serial.print("  via "); Serial.print(modSourceName(m.via));
     }
+    if (m.curve != CURVE_LINEAR) {
+      Serial.print("  curve "); Serial.print(m.curve);
+    }
     Serial.println();
-    if (m.source == SRC_PRESSURE || m.via == SRC_PRESSURE) hasPress = true;
+    if (m.source == SRC_PRESSURE || m.via == SRC_PRESSURE ||
+        m.source == SRC_POSITION || m.via == SRC_POSITION) hasPress = true;
   }
-  Serial.println(hasPress ? "#   -> pressure IS routed in this preset"
-                          : "#   -> NO pressure route: nothing here can move");
+  Serial.println(hasPress ? "#   -> key motion IS routed in this preset"
+                          : "#   -> NO position/pressure route: the held key does nothing");
   // Worst-case level check, since silent clipping is the least obvious way
   // for a patch to sound wrong.
   float ampMod = 0.0f;
@@ -548,18 +566,19 @@ void synthPressureTest() {
   Serial.print(p.name); Serial.println("' — scanner bypassed");
   bool routed = false;
   for (int k = 0; k < p.nRoutes; k++)
-    if (p.routes[k].source == SRC_PRESSURE || p.routes[k].via == SRC_PRESSURE)
+    if (p.routes[k].source == SRC_PRESSURE || p.routes[k].via == SRC_PRESSURE ||
+        p.routes[k].source == SRC_POSITION || p.routes[k].via == SRC_POSITION)
       routed = true;
   if (!routed)
     Serial.println("# WARNING: this preset has no pressure route. Try 'flute',"
                    " 'theremin', 'obie' or 'shimmer'.");
 
-  synthNoteOn(2, 2, 100);
+  synthNoteOn(2, 2, 0.78f);
   uint32_t t0 = millis(), nextPrint = 0;
   while (millis() - t0 < 6000) {
     float x = (millis() - t0) / 6000.0f;
     float press = x < 0.5f ? x * 2.0f : (1.0f - x) * 2.0f;   // 0 -> 1 -> 0
-    synthPressure(2, 2, press);
+    synthExpression(2, 2, press, press);
     synthUpdate();
     if (millis() > nextPrint) {
       nextPrint = millis() + 250;
@@ -573,7 +592,7 @@ void synthPressureTest() {
   Serial.println("# sweep done. Did the sound move?");
 }
 
-uint8_t presetGesture() { return PRESET[currentPreset].gesture; }
+uint8_t presetArticulation() { return PRESET[currentPreset].articulation; }
 
 void synthReportLoad() {
   Serial.print("# audio CPU now="); Serial.print(AudioProcessorUsage(), 1);

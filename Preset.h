@@ -13,16 +13,10 @@
 #include <Arduino.h>
 #include "ModMatrix.h"
 
-// How the instrument should be PLAYED, as opposed to how it sounds. This is
-// the difference between a keyboard and a theremin, and it is not something
-// the oscillator settings can express.
-enum GestureMode : uint8_t {
-  GESTURE_STRUCK = 0,   // piano, harpsichord: velocity sets the loudness, and
-                        //   pressure (if routed) means "past where I landed"
-  GESTURE_CONTINUOUS    // theremin, ondes martenot: the key is a position
-                        //   sensor. Velocity is ignored entirely and the sound
-                        //   is a pure function of where your finger is now.
-};
+// How the instrument is PLAYED, as opposed to how it sounds — see Gesture.h
+// for what each articulation means. This says only how notes BEGIN and END.
+// What the held key then controls is decided by the route table, not here.
+#include "Gesture.h"
 
 struct Preset {
   const char *name;
@@ -70,9 +64,9 @@ struct Preset {
   float delayMs;        // delay time, ms (see DELAY_MAX_MS)
   float delayFb;        // delay feedback, 0..0.85 — how many repeats
 
-  // Last so that existing preset rows, which do not mention it, default to
-  // GESTURE_STRUCK and keep behaving exactly as before.
-  uint8_t gesture;
+  // Last, so rows that do not mention it default to ART_CONTINUOUS... which
+  // is NOT what most presets want, so every row states it explicitly below.
+  uint8_t articulation;
 };
 
 extern const Preset PRESET[];
