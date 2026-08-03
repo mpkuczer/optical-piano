@@ -14,6 +14,15 @@ void scannerResetCalibration();   // forget learned travel and widths
 void scannerScanOnce();           // one full sweep of all five columns
 void scannerAllNotesOff();        // silence everything (used on preset change)
 
+// Travel learning, on or off. Learning used to run permanently, which meant
+// every fault in note DETECTION became a permanent fault in CALIBRATION: a
+// crosstalk phantom note on an untouched key taught that key a false bottom
+// that outlived the sound. Baseline tracking is deliberately NOT affected —
+// thermal drift is continuous and must always be followed. Only the learned
+// bottom freezes. Play a pass with this on, then turn it off.
+void scannerSetLearn(bool on);
+bool scannerLearn();
+
 // Matrix primitives, exposed so Diag.cpp can probe the hardware directly
 // WITHOUT reimplementing anything above them.
 void scanSelectColumn(int c);

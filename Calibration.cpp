@@ -12,7 +12,15 @@ const CalConfig CAL_DEFAULT = {
   /* bottomLearn   */ 0.25f,     // symmetric. Expand-only is a ratchet, and
                                  //   this project has been bitten twice.
   /* defaultTravel */ 3200,      // measured: baselines ~4072, bottoms 300-1000
-  /* minTravel     */ 400,
+  // Two jobs, and it was sized for the wrong one. As "a key with less travel
+  // than this is broken" 400 was fine. As the guard in calNoteEnded — "a note
+  // this shallow teaches nothing" — it has to sit ABOVE the worst crosstalk,
+  // and it did not: measured bleed reaches ~0.15 of travel, about 480 counts,
+  // so a phantom note on an untouched key cleared 400 and taught that key its
+  // whole travel was 480 counts. That key is then hypersensitive until the
+  // next real press expands it back. 800 gives ~1.7x margin over the bleed
+  // and is still far below any real travel (3072-3772 measured).
+  /* minTravel     */ 800,
   /* stillCounts   */ 30.0f,     // a press moves ~140 counts per sample;
                                  //   measured noise reaches ~25
   /* velTau        */ 15.0f

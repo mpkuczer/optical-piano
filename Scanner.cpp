@@ -38,6 +38,23 @@ uint16_t     rawMeasured[5][5];
 
 static uint32_t nowUs = 0;
 
+// Default ON, so an instrument that is never told about this behaves exactly
+// as it always has. Flip to false here if you would rather boot frozen.
+static bool learnTravel = true;
+
+bool scannerLearn() { return learnTravel; }
+
+void scannerSetLearn(bool on) {
+  // Re-enabling must not fold in a stale deepest-point. While learning is off
+  // `noteMinRaw` stops being updated (calUpdate only tracks it when a note is
+  // active AND learning is on), so whatever it held when we froze would
+  // otherwise be taught to the key on the very next note-off.
+  if (on && !learnTravel)
+    for (int r = 0; r < 5; r++)
+      for (int c = 0; c < 5; c++) calKey[r][c].noteMinRaw = calKey[r][c].baseline;
+  learnTravel = on;
+}
+
 // ---- matrix primitives ---------------------------------------------------
 void scanSelectColumn(int c) {
 #ifdef HOST_TEST
@@ -182,7 +199,11 @@ void scannerScanOnce() {
       // progress, so learn this key's bottom". Baseline tracking is decided
       // inside Calibration from the signal itself — see Calibration.h for why
       // gating it on the note state deadlocked.
-      float pos = calUpdate(k, CAL_DEFAULT, v[r], !gestureIdle(g));
+      // `noteActive` gates ONLY the learning of this key's bottom — both the
+      // live expansion and the noteMinRaw tracking that feeds calNoteEnded.
+      // Baseline tracking ignores it entirely and is decided from the signal,
+      // so freezing travel here leaves drift compensation running.
+      float pos = calUpdate(k, CAL_DEFAULT, v[r], learnTravel && !gestureIdle(g));
 
       // LAYER 2: position -> events + expression.
       GestureEvent e = gestureUpdate(g, GESTURE_DEFAULT, art, pos, nowMs);
@@ -214,9 +235,9 @@ void scannerScanOnce() {
         Serial.print("  width=");  Serial.println(gestureWidth(g), 4);
 #endif
       }
-      if (e.noteEnded) {
+      if (e.noteEnded && learnTravel) {
         calNoteEnded(k, CAL_DEFAULT);
-        seedFromNeighbours();
+        seedFromNeighbours();   // also writes bottoms, so it freezes too
       }
     }
   }

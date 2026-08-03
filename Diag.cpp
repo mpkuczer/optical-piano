@@ -217,6 +217,12 @@ void diagKeyReport() {
   Serial.println("#  2 with no finger on it is a stuck note.");
   Serial.println("#  travel = counts from rest to this key's own bottom");
   Serial.println("#  width  = the lean it has shown past a settled note");
+  Serial.print("#  travel learning is ");
+  Serial.println(scannerLearn() ? "ON ('L' freezes it)" : "FROZEN ('L' re-enables)");
+  // Pressure divides by width, so a width near the jitter floor (~0.011 of
+  // travel) is not a weak signal, it is noise. Any patch routing SRC_PRESSURE
+  // on such a key is being modulated by nothing.
+  Serial.println("#  width below ~0.020 means pressure on that key is mostly noise");
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const CalKey &k = calKey[r][c];

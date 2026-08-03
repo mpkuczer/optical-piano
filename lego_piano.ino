@@ -25,6 +25,8 @@
 //   l    list presets         R      dump the active preset's routes
 //   b    recalibrate (hands off the keys)
 //   r    forget learned travel and widths
+//   L    travel learning on/off. On to teach the keys, off to play: while it
+//        is on, a crosstalk phantom note can teach a key a false bottom.
 //   a    audio CPU and memory
 //   t    live trace (keeps playing)
 //   w    per-key calibration report
@@ -105,6 +107,12 @@ static void handleCommand(char ch) {
     case 'R': presetDumpRoutes();        break;
     case 'b': scannerCalibrate();        break;
     case 'r': scannerResetCalibration(); break;
+    case 'L': scannerSetLearn(!scannerLearn());
+              Serial.println(scannerLearn()
+                ? "# travel learning ON — play every key to its bottom once"
+                : "# travel learning FROZEN — phantom notes can no longer"
+                  " teach a false bottom");
+              break;
     case 'a': synthReportLoad();         break;
     case 't': diagTraceToggle();         break;
     case 'w': diagKeyReport();           break;
@@ -141,6 +149,7 @@ void setup() {
 
   Serial.println("# READY");
   Serial.println("# 0-9 preset  n/p next/prev  l list  R routes  b recal  t trace  w keys");
+  Serial.println("# L toggles travel learning — play each key to its bottom, then turn it off");
   presetList();
 }
 

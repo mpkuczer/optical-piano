@@ -22,13 +22,39 @@ static const LfoConfig LFO_OFF = { 0.0f, LFO_SINE, 0.0f, 0.0f };
 
 // Flute: vibrato that fades in, and brightness that follows loudness — as a
 // note dies away it also darkens, which is what real instruments do.
+//
+// EXPERIMENT: driven by absolute POSITION, not pressure. This patch used to
+// route both expression destinations through SRC_PRESSURE, on the argument
+// that a struck note should express relative to where it landed so the strike
+// cancels out. Two objections to that:
+//
+//   1. Velocity ALREADY carries strike intensity, explicitly, on its own
+//      route below. Position carrying it again is double-counting, and
+//      pressure exists mainly to undo a redundancy we could just not create.
+//   2. Pressure's window is at most `heldBand` (0.10) of travel, placed
+//      wherever the note happened to land — usually mid-range, which is the
+//      most optically compressed part of this sensor's response. It also
+//      divides by a learned `width` that is allowed to be 0.012, barely above
+//      the ~0.011 jitter floor, so on a narrow-lean key pressure is mostly
+//      noise. `w` prints that width; check it before trusting the signal.
+//
+// The exponent below does the strike-cancelling that `restPos` used to do,
+// without the state: x^4 makes everything below ~0.7 nearly inert, so the
+// ordinary spread of landing depths produces almost no cutoff movement and
+// the expression lives in the last third, where the key is close enough to
+// occlude properly and the sensor is finally sensitive.
+//
+// Revert by putting SRC_PRESSURE back in both places and dropping the shape.
 static const ModRoute R_FLUTE[] = {
-  // Vibrato that BLOOMS under pressure: the LFO is routed through pressure,
-  // so a held key is steady until you lean on it. This is what a flautist
-  // does with breath and it is the reason `via` exists.
-  { SRC_LFO1,     DST_PITCH,   26.0f, SRC_PRESSURE },
+  // Vibrato that BLOOMS with depth. `via` is multiplied in RAW — it is never
+  // shaped (see modEvaluate) — so this one does grow linearly from the moment
+  // the note lands, unlike the cutoff route. The LFO's own 260 ms delay and
+  // 300 ms fade cover the onset, which is what makes that acceptable here.
+  { SRC_LFO1,     DST_PITCH,   26.0f, SRC_POSITION },
   { SRC_LFO1,     DST_PITCH,    6.0f },   // a little always present
-  { SRC_PRESSURE, DST_CUTOFF,   7.0f },   // lean in and it opens up
+  // Depth raised 7 -> 9 because x^4 spends most of the range doing nothing;
+  // set it back to 7.0 if you want a like-for-like A/B against pressure.
+  { SRC_POSITION, DST_CUTOFF,   9.0f, SRC_CONST, CURVE_LINEAR, 4.0f },
   { SRC_VELOCITY, DST_CUTOFF,   5.0f },
 };
 
