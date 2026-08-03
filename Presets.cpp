@@ -252,22 +252,33 @@ static const ModRoute R_PRESSTEST[] = {
   { SRC_PRESSURE, DST_AMP,     0.60f },  // quiet -> full
 };
 
-// DELIBERATELY STILL ON PRESSURE, while obie and shimmer moved to position.
+// Converted to position, like obie and shimmer — but for a different reason,
+// and it is worth recording why the obvious objection does not hold.
 //
-// PLUCKED hardcodes velocity to 0.5 (Gesture.cpp, in the note-on branch), so
-// SRC_VELOCITY is a constant here and there is no strike information anywhere
-// in the matrix. The argument that justified converting the others — "velocity
-// already carries the strike, position would double-count it" — has nothing to
-// stand on.
+// PLUCKED hardcodes velocity to 0.5 (Gesture.cpp, note-on branch), so
+// SRC_VELOCITY is a constant here. That means the argument used for the other
+// two — "velocity already carries the strike, so pressure is redundant" — has
+// nothing to stand on. It does NOT follow that position is unsafe: there is
+// simply no redundancy either way, so the choice rests on how each one plays.
 //
-// It would also invert the point of the articulation. A plectrum plucks the
-// same however hard the key is hit, which is why velocity is discarded; but
-// landing depth still varies with pluck force, so absolute position would
-// quietly reintroduce strike force as brightness and vibrato depth. Pressure
-// cancels exactly that, and it is the only signal here that does.
+// The real worry was that absolute position would sneak strike force back in
+// as vibrato depth, since a harder pluck tends to land the key deeper and a
+// plectrum is supposed to sound identical however hard it is hit. Two things
+// defuse that. Landing depth is only CORRELATED with pluck speed, not fixed by
+// it — the finger can pluck hard and hold shallow. And the exponent below
+// makes everything under ~0.7 nearly inert, so the ordinary spread of landing
+// depths moves almost nothing and the vibrato only arrives when the finger
+// deliberately pushes into the last third. That is the same trick that let the
+// flute drop pressure, and it works here for the same reason.
+//
+// Which matches what this patch was always after: the pluck is fixed, and the
+// motion AFTERWARDS is the expressive part.
 static const ModRoute R_HARPSI[] = {
-  { SRC_LFO1,     DST_PITCH,   9.0f, SRC_PRESSURE },   // finger vibrato
-  { SRC_PRESSURE, DST_CUTOFF, 10.0f },
+  // Source/via swapped so position takes the exponent, LFO rides as the
+  // multiplier. Depths 9 -> 11 and 10 -> 12 because x^3 and x^4 spend the
+  // bottom of the range doing nothing.
+  { SRC_POSITION, DST_PITCH,  11.0f, SRC_LFO1, CURVE_LINEAR, 3.0f },  // finger vibrato
+  { SRC_POSITION, DST_CUTOFF, 12.0f, SRC_CONST, CURVE_LINEAR, 4.0f },
   { SRC_KEYTRACK, DST_CUTOFF,  4.0f },
   { SRC_RANDOM,   DST_DETUNE,  5.0f },
 };
@@ -309,7 +320,22 @@ static const ModRoute R_DRAWBAR[] = {
 // happens until you really commit and then the note opens up and strains
 // upward. Vibrato appears only under depth, as a player's does.
 static const ModRoute R_REED[] = {
-  { SRC_CONST,    DST_AMP,   -1.00f },
+  // -1.000 -> -1.033: the extra 0.033 is exactly p^1.8 evaluated at contOn
+  // (0.150), so the gain curve now crosses ZERO at the moment the note starts
+  // instead of switching on at -30 dB. Tuned when contOn moved 0.060 -> 0.150
+  // to clear crosstalk: at the old floor p^1.8 was 0.0063, or -44 dB, which is
+  // inaudible and is why a continuous patch could have "no trigger point" at
+  // all; at 0.150 it was 0.0329 and the note announced itself.
+  //
+  // Done with the CONST rather than a steeper exponent on purpose. A constant
+  // subtraction has no slope, so it costs nothing in noise; an exponent
+  // multiplies sensor jitter wherever it is steep (see R_SWELL). If contOn
+  // moves again, this is the number to move with it — recompute it as
+  // contOn^1.8, not by ear.
+  //
+  // It also silences the whole hysteresis band: at contOff (0.100) the curve
+  // is already negative and clamps to zero, so releases cannot click either.
+  { SRC_CONST,    DST_AMP,   -1.033f },
   { SRC_POSITION, DST_AMP,    1.00f, SRC_CONST, CURVE_AUDIO },
   { SRC_CONST,    DST_OSCB,  -0.55f },
   { SRC_POSITION, DST_OSCB,   0.55f, SRC_CONST, CURVE_LATE },
@@ -323,7 +349,13 @@ static const ModRoute R_REED[] = {
 // with depth so hard bowing gets that pinched, pressed quality. Per-note
 // random detune keeps a chord from sounding like one machine.
 static const ModRoute R_BOWED[] = {
-  { SRC_CONST,    DST_AMP,   -0.95f },
+  // -0.950 -> -1.021, same reasoning as R_REED. This patch was the worse of
+  // the two: the old -0.95 left a 0.05 gain FLOOR that never went away, so a
+  // note was audible at -25 dB the instant it started even before contOn moved.
+  // Folding the floor into the offset and adding 0.95*contOn^2 on top puts the
+  // zero crossing at 0.150 exactly. Recompute as 0.05 + 0.95*contOn^2 if the
+  // threshold changes.
+  { SRC_CONST,    DST_AMP,   -1.021f },
   { SRC_POSITION, DST_AMP,    0.95f, SRC_CONST, CURVE_SQUARE },
   { SRC_POSITION, DST_CUTOFF, 40.0f },
   { SRC_POSITION, DST_RES,     0.80f, SRC_CONST, CURVE_SQUARE },
