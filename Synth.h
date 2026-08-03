@@ -7,6 +7,7 @@
 // no allocation and no note stealing.
 #pragma once
 #include <Arduino.h>
+#include "Gesture.h"   // for presetGesture()'s return type
 
 // Longest delay the bus effect can produce. Delay lines consume audio memory
 // blocks (one block = 2.9 ms), so raising this means raising AudioMemory too.
@@ -23,7 +24,11 @@ void synthNoteOff(int row, int col, float releaseVel = 0.5f);
 // Both expression signals, pushed every sweep. `position` is absolute (0 at
 // rest, 1 at this key's bottom); `pressure` is relative to where this note
 // landed. Both feed the modulation matrix; the patch chooses which to use.
-void synthExpression(int row, int col, float position, float pressure);
+// `keyvel` is -1..1, positive descending. Defaulted so the preset audition and
+// any other caller that has no key to measure still compiles and reads as
+// stationary, which is the honest value for a note nobody is touching.
+void synthExpression(int row, int col, float position, float pressure,
+                     float keyvel = 0.0f);
 
 void synthUpdate();                                 // call often: modulation
 bool synthVoiceIdle(int row, int col);
@@ -34,6 +39,11 @@ void  presetDumpRoutes();   // what the flashed firmware actually contains
 void  presetAnnounce();
 int   presetCurrent();
 uint8_t presetArticulation();   // see Gesture.h
+
+// Detection tuning for the active patch: its own GestureConfig if it declares
+// one, GESTURE_DEFAULT otherwise. Scanner feeds this to gestureUpdate, so a
+// threshold is now a property of the patch rather than of the instrument.
+const GestureConfig &presetGesture();
 
 void synthPressureTest();   // sweep pressure 0->1->0 with no scanner
 void synthReportLoad();                             // CPU and block usage

@@ -40,6 +40,7 @@ const GestureConfig GESTURE_DEFAULT = {
   /* settleMs    */ 60.0f,
   /* stillRate   */ 0.20f,
   /* velTauMs    */ 30.0f,
+  /* keyVelFull  */ 4.0f,
   /* heldBand    */ 0.10f,
   // Room left below the rest point can legitimately be tiny — a hard strike
   // can land the key near its own bottom — and the divisor must not run away.
@@ -70,6 +71,11 @@ void gestureInit(GestureState &g) {
 }
 
 bool gestureIdle(const GestureState &g) { return g.phase == GP_IDLE; }
+
+float gestureKeyVel(const GestureState &g, const GestureConfig &c) {
+  float full = c.keyVelFull > 0.0f ? c.keyVelFull : 4.0f;
+  return clampf(g.vel / full, -1.0f, 1.0f);
+}
 
 // Flight time -> 0..1. Logarithmic, because the ear's sense of "harder" is
 // closer to a ratio than a difference.

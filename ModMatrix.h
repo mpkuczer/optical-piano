@@ -47,6 +47,12 @@ enum ModSource : uint8_t {
                    //   upward dependency is how a piano patch ended up
                    //   rescaling every theremin key. It is now a routing
                    //   decision, made here, by the patch.
+  SRC_KEYVEL,      // -1..1, how fast the key is moving RIGHT NOW. Positive is
+                   //   descending. Position says where the finger IS; this
+                   //   says what it is DOING, and the two are independent —
+                   //   a key held deep and a key sweeping through the same
+                   //   depth read identically on SRC_POSITION and opposite
+                   //   here. A bow is this: stop moving and the note dies.
   NUM_SOURCES
 };
 
@@ -132,6 +138,7 @@ struct ModContext {
   float randomv;     // -1..1, drawn once per note
   float pressure;    // 0..1 relative to where this note landed
   float position;    // 0..1 absolute key depth
+  float keyvel;      // -1..1 key speed, positive descending
   float lfoPhase;    // 0..1 CYCLES of head start for this voice's LFOs.
                      //   Without it, every note in a chord struck together
                      //   wobbles in lockstep, which sounds like one machine

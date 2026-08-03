@@ -65,6 +65,12 @@ struct GestureConfig {
   float settleMs;                 // ignore this long after the strike
   float stillRate;                // position units per second = "at rest"
   float velTauMs;
+  float keyVelFull;               // key speed, in position units per second,
+                                  //   that maps to a full-scale SRC_KEYVEL.
+                                  //   4.0 matches the divisor the release
+                                  //   velocity already uses, so "as fast as a
+                                  //   finger goes" means the same thing to
+                                  //   both.
   float heldBand;                 // how far past the rest point still counts
                                   //   as a lean rather than a fresh descent
   float minRoom;                  // floor on the remaining-travel divisor, so
@@ -129,3 +135,14 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
                            uint8_t articulation, float position, float nowMs);
 
 bool  gestureIdle(const GestureState &g);
+
+// How fast the key is moving RIGHT NOW, normalised bipolar: +1 is descending
+// at keyVelFull, -1 is rising that fast, 0 is stationary. Already smoothed
+// (velTauMs) because it is the same estimate the layer uses internally to
+// decide whether a key has come to rest.
+//
+// This was computed and thrown away for the whole life of the project — it
+// drove the stillness test and the release velocity and was never offered to
+// a patch. A bow needs it: energy in, not depth. So does anything where
+// stopping should change the sound rather than just holding it.
+float gestureKeyVel(const GestureState &g, const GestureConfig &c);

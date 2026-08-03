@@ -172,6 +172,9 @@ void scannerAllNotesOff() {
 // ---- one sweep -----------------------------------------------------------
 void scannerScanOnce() {
   const uint8_t art = presetArticulation();
+  // Fetched once per sweep rather than per key: it cannot change mid-sweep,
+  // and a preset change kills every sounding note anyway (scannerAllNotesOff).
+  const GestureConfig &gc = presetGesture();
 
   // The previous column's reading for each row, so the settling bleed can be
   // subtracted. Rows are shared, and a key pressed to the bottom in one
@@ -206,13 +209,15 @@ void scannerScanOnce() {
       // so freezing travel here leaves drift compensation running.
       float pos = calUpdate(k, CAL_DEFAULT, v[r], learnTravel && !gestureIdle(g));
 
-      // LAYER 2: position -> events + expression.
-      GestureEvent e = gestureUpdate(g, GESTURE_DEFAULT, art, pos, nowMs);
+      // LAYER 2: position -> events + expression. The config comes from the
+      // PATCH now, not from one global for the whole instrument — see
+      // Preset::gesture for why a threshold belongs to the sound that needs it.
+      GestureEvent e = gestureUpdate(g, gc, art, pos, nowMs);
 
       // LAYER 3: expression is pushed EVERY sweep, before any event, so a
       // note never begins at a level its modulation is about to contradict.
       // That gap was an audible pop.
-      synthExpression(r, c, g.position, g.pressure);
+      synthExpression(r, c, g.position, g.pressure, gestureKeyVel(g, gc));
 
       if (e.noteOn) {
         synthNoteOn(r, c, e.velocity);

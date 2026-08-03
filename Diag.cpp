@@ -141,12 +141,17 @@ void diagCrosstalkProbe() {
     Serial.println("# again and leave a few alone — those are the measurement.");
     return;
   }
+  // The ACTIVE patch's threshold, not the global default. Now that a preset
+  // can carry its own GestureConfig, quoting GESTURE_DEFAULT here would report
+  // a margin against a number the running pipeline is not using — the exact
+  // way a diagnostic starts lying (see Scanner.cpp's header).
+  const float contOn = presetGesture().contOn;
   Serial.print("# worst bleed over "); Serial.print(measured);
   Serial.print(" untouched keys = "); Serial.print(worst, 3);
   Serial.print(" of travel; continuous trigger is ");
-  Serial.println(GESTURE_DEFAULT.contOn, 3);
+  Serial.println(contOn, 3);
   Serial.print("# CROSS_BLEED is currently "); Serial.println(CROSS_BLEED, 4);
-  if (worst * 2.5f > GESTURE_DEFAULT.contOn) {
+  if (worst * 2.5f > contOn) {
     Serial.println("# TOO CLOSE. Residual bleed means CROSS_BLEED is too small;");
     Serial.print("#   try "); Serial.print(CROSS_BLEED + worst, 4);
     Serial.println(" in Config.h, or raise SETTLE_US.");

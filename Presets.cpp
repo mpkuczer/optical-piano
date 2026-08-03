@@ -18,6 +18,27 @@
 #define NROUTES(x) (x), (uint8_t)(sizeof(x) / sizeof(ModRoute))
 static const LfoConfig LFO_OFF = { 0.0f, LFO_SINE, 0.0f, 0.0f };
 
+// ---- velocity -> loudness ------------------------------------------------
+// This pair reproduces what synthNoteOn used to apply to every non-continuous
+// patch behind the matrix's back: gain = 0.06 + 0.84 * velocity^1.4. The 0.06
+// floor is what stops the softest touch being silent; the 1.4 exponent is the
+// velocity curve, and it is now a number a patch can argue with rather than a
+// constant in the engine.
+//
+// DST_AMP is an offset added to 1.0, so the CONST route has to cancel that
+// unity first — hence -0.94 paired with a 0.84 span.
+//
+// CONTINUOUS patches deliberately do NOT carry this: their loudness is key
+// position, and baking a strike into it is exactly what left a hard hit with
+// a loud floor that leaning out could never get below.
+//
+// A patch wanting a different feel overrides by not using the macro: raise the
+// exponent for a wider dynamic range, drop the floor to 0 for true silence at
+// the softest touch, or omit it entirely so velocity does not affect level.
+#define VEL_TO_AMP \
+  { SRC_CONST,    DST_AMP, -0.94f }, \
+  { SRC_VELOCITY, DST_AMP,  0.84f, SRC_CONST, CURVE_LINEAR, 1.4f }
+
 // ---- route tables --------------------------------------------------------
 
 // Flute: vibrato that fades in, and brightness that follows loudness — as a
@@ -44,6 +65,7 @@ static const LfoConfig LFO_OFF = { 0.0f, LFO_SINE, 0.0f, 0.0f };
 //
 // Revert by putting SRC_PRESSURE back in both places and dropping the shape.
 static const ModRoute R_FLUTE[] = {
+  VEL_TO_AMP,
   // Vibrato that BLOOMS with depth — note the source and via are SWAPPED
   // relative to the obvious spelling, and that is the whole trick.
   //
@@ -96,6 +118,7 @@ static const ModRoute R_FLUTE[] = {
 // Both leave DST_AMP alone, so neither changes the underlying dynamic — the
 // expression is vibrato and brightness only.
 static const ModRoute R_FLUTE_PRESS[] = {
+  VEL_TO_AMP,
   { SRC_LFO1,     DST_PITCH,   26.0f, SRC_PRESSURE },
   { SRC_LFO1,     DST_PITCH,    6.0f },   // a little always present
   { SRC_PRESSURE, DST_CUTOFF,   7.0f },   // lean in and it opens up
@@ -173,12 +196,14 @@ static const ModRoute R_SWELL[] = {
 // Airy: vibrato plus a slow wobble in the second oscillator's level, so the
 // breathiness itself drifts.
 static const ModRoute R_AIRY[] = {
+  VEL_TO_AMP,
   { SRC_LFO1, DST_PITCH, 26.0f },
   { SRC_LFO2, DST_OSCB,   0.10f },
 };
 
 // Circus 2: the LFO->pitch routing Surge had, plus velocity brightness.
 static const ModRoute R_CIRCUS[] = {
+  VEL_TO_AMP,
   { SRC_LFO1,     DST_PITCH,  30.0f },
   { SRC_VELOCITY, DST_CUTOFF,  6.0f },
 };
@@ -186,6 +211,7 @@ static const ModRoute R_CIRCUS[] = {
 // Analog drift: every note detunes slightly differently and sits at a
 // slightly different brightness. This is what "warm" mostly means.
 static const ModRoute R_DRIFT[] = {
+  VEL_TO_AMP,
   { SRC_RANDOM,   DST_DETUNE,  6.0f },
   { SRC_RANDOM,   DST_CUTOFF,  2.0f },
   { SRC_VELOCITY, DST_CUTOFF, 10.0f },
@@ -200,6 +226,7 @@ static const ModRoute R_DRIFT[] = {
 // still has resolution. Safe to do here because this patch is STRUCK and does
 // route velocity — see R_HARPSI for the case where neither is true.
 static const ModRoute R_OBIE[] = {
+  VEL_TO_AMP,
   { SRC_VELOCITY, DST_CUTOFF, 16.0f },
   // Source/via swapped so POSITION can take the exponent and the LFO rides as
   // the multiplier — only the source is shaped. Depth 12 -> 14 because x^3
@@ -211,6 +238,7 @@ static const ModRoute R_OBIE[] = {
 
 // Percussive: hard hits much brighter, brightness tracking the envelope.
 static const ModRoute R_PLUCK[] = {
+  VEL_TO_AMP,
   { SRC_VELOCITY, DST_CUTOFF, 20.0f },
   { SRC_AMPENV,   DST_CUTOFF, 10.0f },
 };
@@ -219,6 +247,7 @@ static const ModRoute R_PLUCK[] = {
 // Converted from pressure to position — same reasoning as R_OBIE. STRUCK, and
 // velocity is routed below, so the strike is already accounted for.
 static const ModRoute R_SHIMMER[] = {
+  VEL_TO_AMP,
   { SRC_LFO2,     DST_PWM,     0.30f },
   // Swapped so the exponent lands on position; LFO2 rides as the multiplier.
   { SRC_POSITION, DST_PWM,     0.22f, SRC_LFO2, CURVE_LINEAR, 3.0f },
@@ -228,17 +257,30 @@ static const ModRoute R_SHIMMER[] = {
 
 // Tremolo: a wobble in VOLUME rather than pitch. We never had this before.
 static const ModRoute R_TREMOLO[] = {
-  { SRC_LFO2,     DST_AMP,    0.45f },
+  VEL_TO_AMP,
+  // THE ONE PATCH WHERE MOVING VELOCITY INTO THE MATRIX IS NOT A NO-OP.
+  // Velocity used to multiply the whole voice, so the tremolo swung a
+  // PROPORTION of whatever loudness the strike had set. As a plain additive
+  // route it would swing an absolute +/-0.45 instead: at velocity 0.3 the base
+  // gain is only 0.216, so the trough would go negative and clamp — a tremolo
+  // that chops to silence on soft notes and overshoots on the peak.
+  //
+  // `via SRC_VELOCITY` restores the proportionality. Checked against the old
+  // behaviour: at v=1.0 [0.45,1.35] vs [0.50,1.31], at v=0.1 [0.048,0.138] vs
+  // [0.051,0.135]. Close everywhere, and no clamping.
+  { SRC_LFO2,     DST_AMP,    0.45f, SRC_VELOCITY },
   { SRC_VELOCITY, DST_CUTOFF, 8.0f  },
 };
 
 // Sample-and-hold to cutoff: the stepped, burbling, sci-fi sound.
 static const ModRoute R_STEPPED[] = {
+  VEL_TO_AMP,
   { SRC_LFO2,     DST_CUTOFF, 14.0f },
   { SRC_VELOCITY, DST_CUTOFF,  6.0f },
 };
 
 static const ModRoute R_NASAL[] = {
+  VEL_TO_AMP,
   { SRC_VELOCITY, DST_CUTOFF, 8.0f },
 };
 
@@ -246,6 +288,20 @@ static const ModRoute R_NASAL[] = {
 // sawtooth (harmonics to filter), a cutoff low enough that moving it is
 // obvious, and a large amplitude swing. If leaning on a key does not
 // visibly change THIS, the fault is not in preset design.
+// blocky had no route table at all — it relied entirely on the velocity curve
+// that used to be hidden in synthNoteOn, so with that gone it needed somewhere
+// to put it. One route pair, no modulation: the plainest patch in the library
+// and now the clearest statement of what VEL_TO_AMP is.
+static const ModRoute R_BLOCKY[] = {
+  VEL_TO_AMP,
+};
+
+// Deliberately NOT carrying VEL_TO_AMP, even though it is ART_STRUCK. This
+// patch exists to sweep pressure and watch what happens, and its own DST_AMP
+// pair already owns the gain (0.40 + 0.60*pressure). Adding the velocity pair
+// would sum two independent claims on the same destination. It also makes the
+// diagnostic strictly better: the sweep no longer depends on how hard the key
+// that started it was struck.
 static const ModRoute R_PRESSTEST[] = {
   { SRC_PRESSURE, DST_CUTOFF, 36.0f },   // three octaves of brightness
   { SRC_CONST,    DST_AMP,    -0.60f },
@@ -274,6 +330,7 @@ static const ModRoute R_PRESSTEST[] = {
 // Which matches what this patch was always after: the pluck is fixed, and the
 // motion AFTERWARDS is the expressive part.
 static const ModRoute R_HARPSI[] = {
+  VEL_TO_AMP,
   // Source/via swapped so position takes the exponent, LFO rides as the
   // multiplier. Depths 9 -> 11 and 10 -> 12 because x^3 and x^4 spend the
   // bottom of the range doing nothing.
@@ -297,6 +354,7 @@ static const ModRoute R_HARPSI[] = {
 // time, per voice. Plucked, so the strike gets the note going and then leaves
 // the key entirely to your ear.
 static const ModRoute R_CHORDTUNE[] = {
+  VEL_TO_AMP,
   { SRC_CONST,    DST_PITCH, -60.0f },
   { SRC_POSITION, DST_PITCH,  85.0f },
   { SRC_KEYTRACK, DST_CUTOFF,  3.0f },
@@ -309,6 +367,7 @@ static const ModRoute R_CHORDTUNE[] = {
 // that note alone grows a fifth. Gated: no velocity, hard onset, organ
 // behaviour — the expression is entirely in where the keys sit.
 static const ModRoute R_DRAWBAR[] = {
+  VEL_TO_AMP,
   { SRC_CONST,    DST_OSCB,  -0.70f },
   { SRC_POSITION, DST_OSCB,   0.70f, SRC_CONST, CURVE_SQUARE },
   { SRC_POSITION, DST_CUTOFF, 8.0f },
@@ -531,7 +590,7 @@ const Preset PRESET[] = {
 { "blocky",  WAVEFORM_TRIANGLE, WAVEFORM_TRIANGLE,   0,  0.0, 0.00,
      3,   700,  250, 1.00,   60.0, 60.0,  400, 0.70,
     1.00, 0.00, 0.00,
-    LFO_OFF, LFO_OFF, nullptr, 0,
+    LFO_OFF, LFO_OFF, NROUTES(R_BLOCKY),
     0.00, 0.00, 0.00,   0,   0.00 ,   ART_STRUCK },
 };
 

@@ -97,6 +97,7 @@ static float sourceValue(uint8_t src, const ModContext &c,
     case SRC_NOTEAGE:  return clampf(c.ageMs / NOTEAGE_FULL_MS, 0.0f, 1.0f);
     case SRC_PRESSURE: return c.pressure;
     case SRC_POSITION: return c.position;
+    case SRC_KEYVEL:   return c.keyvel;
     default:           return 0.0f;
   }
 }
@@ -129,13 +130,21 @@ void modEvaluate(const ModContext &ctx,
   }
 }
 
-static const char *SRC_NAMES[NUM_SOURCES] = {
+// Sized by the initialiser, not by NUM_SOURCES, so the static_assert below can
+// catch a source added to the enum without a name. Declaring [NUM_SOURCES]
+// instead would silently zero-fill and print "(null)" at runtime.
+static const char *SRC_NAMES[] = {
   "const", "velocity", "keytrack", "ampenv", "filtenv",
-  "lfo1", "lfo2", "lfo1uni", "random", "noteage", "pressure", "position"
+  "lfo1", "lfo2", "lfo1uni", "random", "noteage", "pressure", "position",
+  "keyvel"
 };
-static const char *DST_NAMES[NUM_DESTS] = {
+static const char *DST_NAMES[] = {
   "pitch", "detune", "cutoff", "amp", "pwm", "res", "oscB"
 };
+static_assert(sizeof(SRC_NAMES) / sizeof(*SRC_NAMES) == NUM_SOURCES,
+              "a ModSource was added without a name in SRC_NAMES");
+static_assert(sizeof(DST_NAMES) / sizeof(*DST_NAMES) == NUM_DESTS,
+              "a ModDest was added without a name in DST_NAMES");
 
 const char *modSourceName(uint8_t s) {
   return s < NUM_SOURCES ? SRC_NAMES[s] : "?";

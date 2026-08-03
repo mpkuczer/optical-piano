@@ -70,6 +70,23 @@ struct Preset {
   // Last, so rows that do not mention it default to ART_CONTINUOUS... which
   // is NOT what most presets want, so every row states it explicitly below.
   uint8_t articulation;
+
+  // ---- how this patch is DETECTED ----------------------------------------
+  // Thresholds, persistence and smoothing used to be one global GESTURE_DEFAULT
+  // for the whole instrument, which meant a change made for one patch landed on
+  // all of them: raising contOn to clear crosstalk moved the note-on point under
+  // theremin, swell, reed and bowed at once, and reed and bowed then needed
+  // retuning as collateral for a decision that was never about them.
+  //
+  // It is also why GATED exists as a separate articulation. "Organ" is not a
+  // different KIND of note from "theremin" — it is the same continuous gesture
+  // read with a much deeper Schmitt trigger. With a per-patch config that is a
+  // number, not an enum value with its own branches in gestureUpdate.
+  //
+  // NULL means GESTURE_DEFAULT, so every existing row is unaffected. Point it
+  // at a static GestureConfig to override; copy GESTURE_DEFAULT and change the
+  // fields you mean, because this is read positionally like everything else.
+  const GestureConfig *gesture;
 };
 
 extern const Preset PRESET[];

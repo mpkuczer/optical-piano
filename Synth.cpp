@@ -154,6 +154,7 @@ static uint32_t voiceSeed[NUM_VOICES];  // sample-and-hold seed
 static float    voiceResBase[NUM_VOICES];
 static float    voicePress[NUM_VOICES];   // relative, 0..1
 static float    voicePos[NUM_VOICES];     // absolute, 0..1
+static float    voiceKeyVel[NUM_VOICES];  // -1..1, positive descending
 static float    voiceLfoPh[NUM_VOICES];   // 0..1 cycles of LFO head start
 static float    voiceRelease[NUM_VOICES]; // ms, after release-velocity scaling
 static bool     voiceReleased[NUM_VOICES];
@@ -353,8 +354,21 @@ void synthNoteOn(int row, int col, float velocity) {
   // The articulation already decided whether velocity means anything — see
   // Gesture.cpp, which hands us 0.5 when it does not. Nothing to re-decide.
   bool cont = (p.articulation == ART_CONTINUOUS);
-  float amp = cont ? p.ampScale
-                   : (0.06f + 0.84f * powf(v, 1.4f)) * p.ampScale;
+  // Velocity -> loudness used to live HERE, as (0.06 + 0.84*v^1.4)*ampScale,
+  // and it was the last modulation that never went through the matrix. The
+  // comment below about the filter claimed "all modulation goes through one
+  // path" while this line quietly disproved it: a patch could not change its
+  // own velocity curve, and a SRC_VELOCITY -> DST_AMP route would have stacked
+  // on top of an invisible one.
+  //
+  // It is now the VEL_TO_AMP route pair in Presets.cpp, carried by every
+  // non-continuous patch. The migration is EXACT for any patch with no other
+  // DST_AMP route, because
+  //     old: ampScale*k * ampEnv * (1 + others)
+  //     new: ampScale   * ampEnv * (k + others)
+  // agree when others == 0. Where they do not agree — tremolo — the route
+  // table says so explicitly.
+  float amp = p.ampScale;
   // Both oscillators feed vmix at gain 1.0, so the voice's peak is
   // amp * (1 + mixB) — and AudioMixer4 SATURATES at full scale. theremin sat
   // at 1.125, flute 1.105, tremolo 1.595. Clipping a sine flat-tops it, and a
@@ -416,6 +430,7 @@ void synthNoteOn(int row, int col, float velocity) {
     ctx.randomv  = voiceRand[i];
     ctx.pressure = voicePress[i];
     ctx.position = voicePos[i];
+    ctx.keyvel   = voiceKeyVel[i];
     ctx.lfoPhase = voiceLfoPh[i];
     float mod0[NUM_DESTS];
     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod0);
@@ -471,9 +486,11 @@ void synthNoteOff(int row, int col, float releaseVel) {
   env[i].noteOff();
 }
 
-void synthExpression(int row, int col, float position, float pressure) {
+void synthExpression(int row, int col, float position, float pressure,
+                     float keyvel) {
   int i = row * 5 + col;
   voicePos[i] = clampf(position, 0.0f, 1.0f);
+  voiceKeyVel[i] = clampf(keyvel, -1.0f, 1.0f);
   if (!voiceReleased[i]) voicePress[i] = clampf(pressure, 0.0f, 1.0f);
 }
 
@@ -523,6 +540,7 @@ void synthUpdate() {
     ctx.randomv  = voiceRand[i];
     ctx.pressure = voicePress[i];
     ctx.position = voicePos[i];
+    ctx.keyvel   = voiceKeyVel[i];
     ctx.lfoPhase = voiceLfoPh[i];
     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod);
 
@@ -716,6 +734,11 @@ void synthPressureTest() {
 }
 
 uint8_t presetArticulation() { return PRESET[currentPreset].articulation; }
+
+const GestureConfig &presetGesture() {
+  const GestureConfig *g = PRESET[currentPreset].gesture;
+  return g ? *g : GESTURE_DEFAULT;
+}
 
 void synthReportLoad() {
   Serial.print("# audio CPU now="); Serial.print(AudioProcessorUsage(), 1);
