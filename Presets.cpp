@@ -147,10 +147,23 @@ static const ModRoute R_THEREMIN[] = {
 // a switch rather than a swell.
 static const ModRoute R_SWELL[] = {
   { SRC_CONST,    DST_AMP,    -0.85f },
-  { SRC_POSITION, DST_AMP,     0.85f, SRC_CONST, CURVE_LINEAR, 4.0f },
-  { SRC_POSITION, DST_CUTOFF, 34.0f,  SRC_CONST, CURVE_LINEAR, 3.0f },
-  { SRC_POSITION, DST_RES,     0.90f, SRC_CONST, CURVE_LINEAR, 4.0f },
-  { SRC_POSITION, DST_OSCB,    0.35f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  // AMPLITUDE WANTS A MILD CURVE, WHATEVER THE BOTTOM OF THE RANGE FEELS LIKE.
+  // A steep exponent multiplies sensor jitter wherever it is steep: the slope
+  // is depth * n * pos^(n-1), so against ~0.011 of travel of jitter, x^4 puts
+  // 3.7% of amplitude wobble on a note held near the bottom versus 2.0% for
+  // reed's x^1.8. That is amplitude modulation by noise, and it lands as hiss
+  // pitched around whatever you are playing — see the anti-zipper note in
+  // Synth.cpp, whose "around 1.5%" figure is measured against a 1.8 exponent.
+  // 2.2 keeps a flatter bottom than reed while staying in the same noise class.
+  { SRC_POSITION, DST_AMP,     0.85f, SRC_CONST, CURVE_LINEAR, 2.2f },
+  // BRIGHTNESS WANTS LINEAR. Cutoff depth is in SEMITONES, which are already
+  // log frequency, so a linear route is perceptually even across the whole
+  // travel — which is exactly why reed (30) and bowed (40) feel controllable
+  // everywhere and an x^3 version of this did not. Shaping it made brightness
+  // inert to 0.6 and then lurch.
+  { SRC_POSITION, DST_CUTOFF, 34.0f },
+  { SRC_POSITION, DST_RES,     0.90f, SRC_CONST, CURVE_SQUARE },
+  { SRC_POSITION, DST_OSCB,    0.35f, SRC_CONST, CURVE_SQUARE },
   // Vibrato still grows LINEARLY with depth: `via` is multiplied in raw and
   // is deliberately not shaped (see modEvaluate), so there is no way to make
   // this bloom at the top the way the routes above do. Left as it was.
@@ -180,11 +193,20 @@ static const ModRoute R_DRIFT[] = {
 };
 
 // Oberheim-ish: wide velocity brightness, slow vibrato well after onset.
+// Converted from pressure to position, on the same argument as the flute:
+// SRC_VELOCITY below already carries how hard the key was hit, so routing a
+// strike-relative signal as well was measuring the same thing twice. The
+// exponents put the expression in the last third of travel, where this sensor
+// still has resolution. Safe to do here because this patch is STRUCK and does
+// route velocity — see R_HARPSI for the case where neither is true.
 static const ModRoute R_OBIE[] = {
   { SRC_VELOCITY, DST_CUTOFF, 16.0f },
-  { SRC_LFO1,     DST_PITCH,  12.0f, SRC_PRESSURE },
+  // Source/via swapped so POSITION can take the exponent and the LFO rides as
+  // the multiplier — only the source is shaped. Depth 12 -> 14 because x^3
+  // spends the bottom of the range doing nothing.
+  { SRC_POSITION, DST_PITCH,  14.0f, SRC_LFO1, CURVE_LINEAR, 3.0f },
   { SRC_RANDOM,   DST_DETUNE,  4.0f },
-  { SRC_PRESSURE, DST_CUTOFF, 12.0f },
+  { SRC_POSITION, DST_CUTOFF, 14.0f, SRC_CONST, CURVE_LINEAR, 4.0f },
 };
 
 // Percussive: hard hits much brighter, brightness tracking the envelope.
@@ -194,10 +216,13 @@ static const ModRoute R_PLUCK[] = {
 };
 
 // Pulse-width motion, the Oberheim shimmer.
+// Converted from pressure to position — same reasoning as R_OBIE. STRUCK, and
+// velocity is routed below, so the strike is already accounted for.
 static const ModRoute R_SHIMMER[] = {
   { SRC_LFO2,     DST_PWM,     0.30f },
-  { SRC_LFO2,     DST_PWM,     0.18f, SRC_PRESSURE },
-  { SRC_PRESSURE, DST_OSCB,    0.25f },
+  // Swapped so the exponent lands on position; LFO2 rides as the multiplier.
+  { SRC_POSITION, DST_PWM,     0.22f, SRC_LFO2, CURVE_LINEAR, 3.0f },
+  { SRC_POSITION, DST_OSCB,    0.30f, SRC_CONST, CURVE_LINEAR, 4.0f },
   { SRC_VELOCITY, DST_CUTOFF,  6.0f  },
 };
 
@@ -227,6 +252,19 @@ static const ModRoute R_PRESSTEST[] = {
   { SRC_PRESSURE, DST_AMP,     0.60f },  // quiet -> full
 };
 
+// DELIBERATELY STILL ON PRESSURE, while obie and shimmer moved to position.
+//
+// PLUCKED hardcodes velocity to 0.5 (Gesture.cpp, in the note-on branch), so
+// SRC_VELOCITY is a constant here and there is no strike information anywhere
+// in the matrix. The argument that justified converting the others — "velocity
+// already carries the strike, position would double-count it" — has nothing to
+// stand on.
+//
+// It would also invert the point of the articulation. A plectrum plucks the
+// same however hard the key is hit, which is why velocity is discarded; but
+// landing depth still varies with pluck force, so absolute position would
+// quietly reintroduce strike force as brightness and vibrato depth. Pressure
+// cancels exactly that, and it is the only signal here that does.
 static const ModRoute R_HARPSI[] = {
   { SRC_LFO1,     DST_PITCH,   9.0f, SRC_PRESSURE },   // finger vibrato
   { SRC_PRESSURE, DST_CUTOFF, 10.0f },
