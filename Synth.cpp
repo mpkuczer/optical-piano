@@ -233,7 +233,11 @@ void synthBegin() {
   applyPresetBus();
 
   sgtl.enable();
-  sgtl.volume(0.80f);
+  // Raised from 0.80 to make up for the voice-mixer normalisation. This is
+  // analog gain applied AFTER the digital summing, so unlike raising the
+  // mixer gains it cannot clip. If the instrument is too quiet, raise this
+  // and nothing else.
+  sgtl.volume(0.92f);
   sgtl.lineOutLevel(29);
 }
 
@@ -250,6 +254,13 @@ void synthNoteOn(int row, int col, int velocity) {
   if (cont) v = 0.5f;
   float amp = cont ? p.ampScale
                    : (0.06f + 0.84f * powf(v, 1.4f)) * p.ampScale;
+  // Both oscillators feed vmix at gain 1.0, so the voice's peak is
+  // amp * (1 + mixB) — and AudioMixer4 SATURATES at full scale. theremin sat
+  // at 1.125, flute 1.105, tremolo 1.595. Clipping a sine flat-tops it, and a
+  // flat-topped sine is odd harmonics, which is why it read as a clarinet's
+  // low register. Normalising here means ampScale now means what it says: the
+  // peak of the whole voice, not of one oscillator.
+  amp /= (1.0f + p.mixB);
 
   // Detune split symmetrically so perceived pitch stays put.
   float half = p.cents * 0.5f;
@@ -409,6 +420,13 @@ void synthUpdate() {
     voiceLastGain[i] = gain;
     float a = voiceAmp0[i] * ampEnv * gain;
     float bLevel = clampf(voiceMixB[i] + mod[DST_OSCB], 0.0f, 1.5f);
+    // Modulation can push the pair back over full scale even after the
+    // note-on normalisation — tremolo adds up to +0.45 of gain, presstest
+    // +0.60. Scale the pair down rather than let the mixer saturate.
+    {
+      float peak = a * (1.0f + bLevel);
+      if (peak > 1.0f) a /= peak;
+    }
     oscA[i].amplitude(a);
     oscB[i].amplitude(a * bLevel);
 
@@ -478,6 +496,17 @@ void presetDumpRoutes() {
   }
   Serial.println(hasPress ? "#   -> pressure IS routed in this preset"
                           : "#   -> NO pressure route: nothing here can move");
+  // Worst-case level check, since silent clipping is the least obvious way
+  // for a patch to sound wrong.
+  float ampMod = 0.0f;
+  for (int k = 0; k < q.nRoutes; k++)
+    if (q.routes[k].dest == DST_AMP && q.routes[k].depth > 0.0f)
+      ampMod += q.routes[k].depth;
+  float peak = q.ampScale * (1.0f + q.mixB) * (1.0f + ampMod);
+  Serial.print("#   headroom: peak voice sum = "); Serial.print(peak, 3);
+  Serial.println(peak > 1.0f
+                 ? "  (was clipping before normalisation; now scaled)"
+                 : "  (fits)");
 }
 
 void presetList() {
