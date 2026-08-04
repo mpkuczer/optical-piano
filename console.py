@@ -14,7 +14,9 @@ for pid in pids:
 if pids:
     time.sleep(0.5)
 
-fname = time.strftime("trace_%Y%m%d_%H%M%S.log")
+logdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(logdir, exist_ok=True)
+fname = os.path.join(logdir, time.strftime("trace_%Y%m%d_%H%M%S.log"))
 ser = serial.Serial(PORT, 115200)
 print(f"logging {PORT} -> {fname}   (type b/s/i/d/c + Enter; Ctrl-C to stop)")
 
