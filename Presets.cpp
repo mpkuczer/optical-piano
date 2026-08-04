@@ -803,6 +803,109 @@ static const ModRoute R_FMBELL[] = {
   { SRC_KEYTRACK, DST_CUTOFF, -4.0f },
 };
 
+// FM UNDER A CONTINUOUS FINGER, which is the combination this instrument can
+// make and a keyboard cannot. dxpiano and fmbell are both ART_STRUCK: their
+// index is a decaying envelope, so the sweep from clang to sine happens on the
+// note's schedule and the player only chooses how hard it starts. Take the
+// strike away and the index has no envelope left to follow — it follows the
+// finger, and the timbre stops being something a note DOES and becomes
+// something you are DOING, for as long as you hold it.
+//
+// Nothing subtractive gets close. swell, reed, bowed and strbow all move the
+// same gesture onto a filter cutoff, and a filter can only uncover harmonics a
+// sawtooth already contains: the spectrum's SHAPE is fixed and you slide a
+// window over it. Here the finger changes how many partials EXIST, which is
+// audibly a different kind of change — closer to a player pushing an
+// instrument harder than to a knob being turned.
+//
+// The ratio is 2.005 and the 0.005 is doing real work. At exactly 2.0 the
+// sidebands land at fc(1 +- 2n), i.e. odd harmonics only — a clarinet, hollow
+// and dead still. The n=1 LOWER sideband lands at |1-2| = the fundamental
+// itself, on top of the carrier, and the two either reinforce or cancel
+// depending on index: that is why a 1:2 patch can lose its fundamental
+// entirely just as you lean on it.
+//
+// Offset the ratio slightly and that collision becomes a BEAT instead of a
+// cancellation. 2.005 puts the reflected sideband 0.005 of the fundamental
+// away from the carrier — a fixed 8.6 cents, so like any detune in cents it
+// beats at a rate proportional to pitch: 0.65 Hz at the bottom key (MIDI 48,
+// 131 Hz) and 2.6 Hz at the top (MIDI 72, 523 Hz). Higher orders are detuned by
+// n times as much, so the beating gets denser exactly as the index opens up.
+// One float buys a chorus that grows with effort, out of a single oscillator.
+//
+// Retune it as a detune, not as a ratio: 2.0 is dead still and hollow, 2.01 is
+// 17 cents and reads as a wide ensemble, past about 2.03 the partials stop
+// fusing and it turns into fmbell.
+static const ModRoute R_FMBOW[] = {
+  // reed's exact pair, and the same derivation: -1.033 is unity plus contOn^1.8
+  // (0.150^1.8 = 0.033), so the gain curve crosses ZERO at the moment the note
+  // starts rather than switching on at -30 dB, and the whole hysteresis band
+  // sits below zero where it clamps silent. Recompute it as contOn^1.8 if that
+  // threshold moves.
+  { SRC_CONST,    DST_AMP,   -1.033f },
+  { SRC_POSITION, DST_AMP,    1.00f, SRC_CONST, CURVE_AUDIO },
+
+  // ---- the index, which is this patch's entire timbre ---------------------
+  // A floor, so the quietest playing is not a bare test tone: 0.06 of 600
+  // degrees is 0.63 radians, one weak sideband pair either side. dxpiano's
+  // argument, one notch up because there is no strike here to cover the entry.
+  { SRC_CONST,    DST_FM,     0.06f },
+  // THE GESTURE. Squared rather than linear: the bottom of the travel stays
+  // nearly a pure sine, which is where the note is also quietest, so soft and
+  // pure arrive together the way they do on a real instrument. 0.06 + 0.34 is
+  // 240 degrees of peak deviation at full press, about 4.2 radians — reedy and
+  // strained, with significant partials out to the 11th. Past ~0.45 total it
+  // stops sounding like effort and starts sounding like a bell.
+  { SRC_POSITION, DST_FM,     0.34f, SRC_CONST, CURVE_SQUARE },
+  // THE BOW. A continuous patch has no velocity by construction — there is no
+  // strike to measure — so this is the only thing that can bite. SRC_KEYVEL is
+  // how fast the key is moving RIGHT NOW, so it adds partials while the finger
+  // is travelling and gives them back when it stops: press quickly and the note
+  // scrapes in bright then settles, lift and it purifies on the way out, hold
+  // still and it is exactly what position says it is. That decay is not an
+  // envelope, it is the finger, and it happens as many times per note as you
+  // want it to.
+  //
+  // SQUARED FOR NOISE, not for feel, and this route does not work without it.
+  // keyvel is differentiated from the RAW position (Gesture.cpp uses `pos`, not
+  // the smoothed copy), so ~0.011 of sensor jitter across a 2.7 ms scan is
+  // ~4 position units/s of noise — full scale — and the 30 ms smoother only
+  // gets that down to about 0.2 RMS. Linear, that would put 0.05 of index hiss
+  // on a perfectly still key. Squaring costs a real press nothing, because a
+  // press is at or near full scale anyway, and takes the noise to 0.04 of
+  // itself: under 0.01 of index, which is inaudible.
+  { SRC_KEYVEL,   DST_FM,     0.24f, SRC_CONST, CURVE_SQUARE },
+  // Purer up the keyboard. Phase modulation holds the index constant across the
+  // keyboard by construction, so without this every note is the same spectrum
+  // transposed — the machine sound. Real instruments thin out on top.
+  { SRC_KEYTRACK, DST_FM,    -0.10f },
+  // Fixed for the life of the note: five keys held together are five slightly
+  // different spectra rather than one spectrum five times.
+  { SRC_RANDOM,   DST_FM,     0.02f },
+  // The tone BREATHES. A slow index wobble is not vibrato and not tremolo —
+  // pitch and loudness both stay put and only the brightness moves, which is
+  // the one modulation a sustained wind or bowed note really has and the one
+  // an oscillator pair cannot produce. Via position, so a note held at the
+  // quiet end stays still.
+  { SRC_LFO2,     DST_FM,     0.04f, SRC_POSITION },
+
+  // Vibrato steered into the top of the travel, bowed's swapped-source trick:
+  // only the SOURCE takes an exponent, so position has to be the source and the
+  // LFO the via. Written the obvious way round vibrato is a constant fraction
+  // of depth, which is not a playable gesture. At x^3: 1.5 cents at half
+  // travel, 5 at three quarters, 12 at the bottom.
+  { SRC_POSITION, DST_PITCH, 12.0f, SRC_LFO1, CURVE_LINEAR, 3.0f },
+
+  // NO ROUTE TOUCHES THE FILTER, deliberately, and that is the demonstration.
+  // fmbell needs a keytrack route on the cutoff because its 2.76 ratio throws
+  // sidebands past Nyquist on the top octave. This one cannot: the keyboard
+  // stops at MIDI 72, and the worst case there — full press, full-speed scrape,
+  // index 0.54 after keytrack has taken its cut — reaches about the 13th
+  // partial, 7.5 kHz. That is a third of Nyquist. There is nothing to fold and
+  // nothing to hide, so the filter sits wide open and static and every bit of
+  // brightness you hear is the index.
+};
+
 // ---- the table -----------------------------------------------------------
 // WAVEFORM_BANDLIMIT_*, not the plain names. AudioSynthWaveform's ordinary
 // SAWTOOTH, SQUARE and PULSE are generated naively — a raw ramp or a raw step
@@ -1152,6 +1255,55 @@ const Preset PRESET[] = {
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_FMBELL),
     0.00, 0.46, 0.00,   0,   0.00,   ART_STRUCK, nullptr, 2.76f },
+
+// The expressive one. Third in the FM group so 'n' and 'p' walk dxpiano ->
+// fmbell -> fmbow: same mechanism, struck harmonic, struck inharmonic, then
+// the same thing with the envelope taken away and handed to your finger. It is
+// also worth A/B-ing against strbow two rows up, which is the identical
+// GESTURE driving a filter instead of an index.
+//
+//   waveB TRIANGLE, semiB -12, mixB 0.30
+//                          The body, and the only non-FM sound here. An octave
+//                          down it has partials at f/2, 3f/2, 5f/2 and nothing
+//                          at f, so it adds weight without landing on the
+//                          carrier or on any sideband — strings' argument, and
+//                          it matters more here because the 2.005 beat is a
+//                          deliberate effect that a second oscillator sitting
+//                          on the fundamental would muddy. It also keeps the
+//                          note anchored when the index nulls the carrier.
+//   cents 0.0              inert for that pair — there is no shared partial to
+//                          beat — so it is left at zero rather than pretending.
+//                          The chorus in this patch is the RATIO, not detune.
+//   fPeak == fBase 20.0    wide open and static: 2.6 kHz at the bottom key and
+//                          10.5 kHz at the top. Up top that is 3 kHz clear of
+//                          anything the index can generate, so the filter is
+//                          doing nothing at all; at the bottom key it lands
+//                          just above the 2.4 kHz a full press reaches there,
+//                          which rounds off the hardest low notes very
+//                          slightly. That asymmetry is the right way round —
+//                          low notes are where a dense sideband stack turns
+//                          into buzz. See the last note in R_FMBOW.
+//   res 0.70               flat. A resonant peak is a formant, and an FM
+//                          spectrum is already fully specified.
+//   fTau 400               unused. Nothing routes SRC_FILTENV and the cutoff
+//                          does not move; it is here because the field is
+//                          positional.
+//   a 30                   also unused — synthNoteOn forces a 4 ms attack on
+//                          every continuous patch, because any ramp of its own
+//                          is a second envelope competing with the one your
+//                          finger is drawing.
+//   r 420                  the one thing that IS a shape: shorter than strbow's
+//                          600 so a released line stops when you stop, long
+//                          enough that lifting is a decay rather than a cut.
+//   verb 0.50, no delay    an echo argues with a line you are still bowing.
+//   LFO2 0.27 Hz           the breathing, on a 1.5 s fade so it arrives after
+//                          you have committed to the note rather than with it.
+{ "fmbow",   WAVEFORM_SINE,     WAVEFORM_TRIANGLE,  -12,  0.0, 0.30,
+    30,  1e9f,  420, 0.65,   20.0, 20.0,  400, 0.70,
+    1.00, 0.00, 0.00,
+    { 5.1f, LFO_SINE, 350.0f, 700.0f },
+    { 0.27f, LFO_SINE, 0.0f, 1500.0f }, NROUTES(R_FMBOW),
+    0.00, 0.50, 0.00,   0,   0.00,   ART_CONTINUOUS, nullptr, 2.005f },
 
 // ============================ DIAGNOSTIC ===================================
 { "presstest", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH, 0,  6.0, 1.00,
