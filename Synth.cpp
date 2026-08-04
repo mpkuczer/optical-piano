@@ -420,6 +420,23 @@ void synthNoteOn(int row, int col, float velocity) {
   // that is a step discontinuity straight into the speaker. Audible as a pop
   // on the first note out of silence, and masked (not absent) when a reverb
   // tail happens to be ringing.
+  // ...and that has to mean EVERY destination the first synthUpdate is about to
+  // apply, not just DST_AMP. It used to mean only DST_AMP, which left the other
+  // six stepping on the first update — up to UPDATE_MS plus a whole scan sweep
+  // later, and then through a smoother, so it arrived not as a click but as a
+  // distinct SECOND ATTACK.
+  //
+  // Invisible until a patch made a destination carry the whole sound. epiano
+  // has mixB 0.00 and builds its tine entirely from a DST_OSCB route, so oscB
+  // opened at exactly zero and the bell swelled in ~5 ms behind the body. Every
+  // other preset has a non-zero mixB and modest routes, so its step was small
+  // enough to pass for part of the attack.
+  //
+  // The STORED bases — voiceFA/FB, voiceCutPeak/Base, voiceMixB, voiceResBase —
+  // are deliberately left alone above. They are what synthUpdate modulates
+  // FROM; folding this instant's modulation into them would bake it in forever.
+  float aFreq0 = fA, bFreq0 = fB;
+  float bLevel0 = p.mixB, cut0 = peak, res0 = p.res, pw0 = 0.5f;
   {
     ModContext ctx;
     ctx.velocity = voiceVel[i];
@@ -435,6 +452,21 @@ void synthNoteOn(int row, int col, float velocity) {
     float mod0[NUM_DESTS];
     modEvaluate(ctx, p.lfo1, p.lfo2, p.routes, p.nRoutes, voiceSeed[i], mod0);
     amp *= clampf(1.0f + mod0[DST_AMP], 0.0f, 2.0f);
+    bLevel0 = clampf(p.mixB + mod0[DST_OSCB], 0.0f, 1.5f);
+    if (mod0[DST_PITCH] != 0.0f || mod0[DST_DETUNE] != 0.0f) {
+      aFreq0 = fA * powf(2.0f, mod0[DST_PITCH] / 1200.0f);
+      bFreq0 = fB * powf(2.0f, (mod0[DST_PITCH] + mod0[DST_DETUNE]) / 1200.0f);
+    }
+    if (mod0[DST_CUTOFF] != 0.0f)
+      cut0 = clampf(peak * powf(2.0f, mod0[DST_CUTOFF] / 12.0f),
+                    FILT_MIN_HZ, FILT_MAX_HZ);
+    res0 = clampf(p.res + mod0[DST_RES], 0.7f, 4.5f);
+    pw0  = clampf(0.5f + mod0[DST_PWM], 0.05f, 0.95f);
+    // The same headroom guard synthUpdate applies, for the same reason: the
+    // earlier `amp /= (1 + p.mixB)` normalised against the UNMODULATED mixB,
+    // and a route can push the pair well past that.
+    float pk = amp * (1.0f + bLevel0);
+    if (pk > 1.0f) amp /= pk;
   }
 
   // Waveform and envelope are applied HERE rather than when the preset
@@ -446,19 +478,22 @@ void synthNoteOn(int row, int col, float velocity) {
   // synth_waveform.h. Called before frequency(), it seeds the BLEP generator
   // with the previous note's pitch, and the oscillator spends the first cycles
   // correcting itself. Frequency and width first, then begin.
-  oscA[i].frequency(fA);
-  oscB[i].frequency(fB);
-  oscA[i].pulseWidth(0.5f);
-  oscB[i].pulseWidth(0.5f);
+  oscA[i].frequency(aFreq0);
+  oscB[i].frequency(bFreq0);
+  oscA[i].pulseWidth(pw0);
+  oscB[i].pulseWidth(pw0);
   oscA[i].begin(p.waveA);
   oscB[i].begin(p.waveB);
   oscA[i].amplitude(amp);
-  oscB[i].amplitude(amp * p.mixB);
+  oscB[i].amplitude(amp * bLevel0);
+  // Seed the smoothers at the modulated values too. Seeding them at the
+  // unmodulated ones is what turned the step into a ramp — which is worse,
+  // not better: a click is a click, but a ramp arriving late is a second note.
   voiceAmpSmA[i] = amp;
-  voiceAmpSmB[i] = amp * p.mixB;
-  voiceCutSm[i]  = peak;
-  vfilt[i].resonance(p.res);
-  vfilt[i].frequency(peak);
+  voiceAmpSmB[i] = amp * bLevel0;
+  voiceCutSm[i]  = cut0;
+  vfilt[i].resonance(res0);
+  vfilt[i].frequency(cut0);
   // A continuous instrument must not have an attack shape of its own: any
   // ramp here is a second, competing amplitude envelope layered under the one
   // your finger is drawing.

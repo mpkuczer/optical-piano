@@ -422,6 +422,157 @@ static const ModRoute R_BOWED[] = {
   { SRC_RANDOM,   DST_DETUNE,  4.0f },
 };
 
+// ============================ ENSEMBLE =====================================
+// A string ensemble is not one sound, it is several nearly-identical ones
+// beating against each other. Two oscillators give a beat at ONE rate, and a
+// fixed beat reads as "out of tune" rather than "ensemble" — so LFO2 walks the
+// detune slowly, which is what the old string machines got from their
+// bucket-brigade chorus. SRC_RANDOM on top offsets every note, so a chord
+// struck together does not wander in lockstep.
+// THIRD ATTEMPT, and the two failures are the useful part of the story.
+//
+//   v1: 18 cents detune, a 0.23 Hz LFO on DST_DETUNE, plus an always-on
+//       vibrato. Up to 39 cents of instability, most of it wandering.
+//       SEASICK. And metallic, because two saws c cents apart have their nth
+//       harmonic beating at n TIMES the fundamental rate — at 18 cents
+//       everything above the 5th harmonic beats past 20 Hz, which the ear
+//       files as roughness rather than chorus.
+//
+//   v2: cured the roughness by holding oscB out until the top of the travel,
+//       reed-style. That left the bottom two-thirds as ONE bright saw with
+//       the filter wide open. TINNY — the opposite defect.
+//
+// Both failures come from trying to get body out of near-unison detune. Two
+// oscillators a few cents apart can only ever produce one beat frequency and
+// no extra weight; that is a supersaw's job and it needs seven of them.
+//
+// So stop asking detune for body and ask an OCTAVE for it. semiB -12 puts
+// oscB a full octave down, which does not produce the dense harmonic
+// roughness near-unison does, so it can stay at full level throughout — and
+// an octave below the note is exactly the weight that was missing. The
+// ensemble width still comes from the chord: 25 voices, each with its own
+// fixed random detune, so five keys held together are ten oscillators sitting
+// at ten different offsets and STAYING there.
+static const ModRoute R_STRINGS[] = {
+  VEL_TO_AMP,
+  { SRC_RANDOM,   DST_DETUNE, 4.0f },    // per-note, static, widens a chord
+  // 22 -> 17 and 7 -> 5. The top of the range was reaching 11x the fundamental,
+  // which on a sawtooth is a lot of upper harmonic to have present at once.
+  // Sweetness in this library has a precise meaning — reed's "sweet" bottom is
+  // the filter at 1.6x, i.e. almost nothing but the fundamental — so this is
+  // simply less of what makes a saw buzz.
+  { SRC_POSITION, DST_CUTOFF, 17.0f },   // linear, like reed and bowed
+  { SRC_VELOCITY, DST_CUTOFF,  5.0f },
+  // Vibrato you ADD rather than vibrato that is always on.
+  { SRC_LFO1,     DST_PITCH,   6.0f, SRC_POSITION },
+};
+
+// STRINGS TIMBRE, BOWED GESTURE. The same octave-down saw pair and warm filter
+// as R_STRINGS, played the way R_BOWED is played: ART_CONTINUOUS, no strike at
+// all, loudness nothing but where the finger is.
+//
+// This is the clearest demonstration in the library that articulation and
+// timbre are independent. Nothing about the oscillators changes; what changes
+// is where DST_AMP gets its source, and one enum on the preset row. strings is
+// a chord you hit and hold; this is a single line you draw.
+//
+// The CONST is -1.015, which is exactly 0.150^2.2 below unity — so the gain
+// curve crosses ZERO at contOn and the note swells from true silence rather
+// than switching on. Recompute it as contOn^2.2 if that threshold moves.
+static const ModRoute R_STRBOW[] = {
+  { SRC_CONST,    DST_AMP,   -1.015f },
+  { SRC_POSITION, DST_AMP,    1.00f, SRC_CONST, CURVE_LINEAR, 2.2f },
+  { SRC_POSITION, DST_CUTOFF, 24.0f },
+  // Resonance climbing under the finger is bowed's trick and most of why it
+  // feels alive: pressing does not just open the filter, it sharpens it.
+  //
+  // 0.60 -> 0.35 as part of the sweetening. This is the one place where the two
+  // goals genuinely pull against each other — a rising Q is what makes the
+  // gesture feel like it is doing something, and a peak is also exactly what
+  // brass taught us reads as nasal. 0.35 climbs 0.80 -> 1.15, which is enough
+  // to hear the filter sharpen and not enough to put a bump on a harmonic.
+  { SRC_POSITION, DST_RES,     0.35f, SRC_CONST, CURVE_SQUARE },
+  { SRC_RANDOM,   DST_DETUNE,  4.0f },
+  { SRC_LFO1,     DST_PITCH,   7.0f, SRC_POSITION },
+};
+
+// Brass is defined by its ATTACK: the tone starts dark and the brightness
+// arrives a moment later. That rise cannot come from the engine's own sweep —
+// voiceCutPeak is clamped to be >= voiceCutBase, so the built-in sweep only
+// ever FALLS. It has to come from the matrix instead, and SRC_FILTENV with a
+// NEGATIVE depth is exactly it: filtEnv runs 1 -> 0 over fTau, so the cutoff
+// starts 20 semitones below where fBase puts it and climbs.
+//
+// fTau (110 ms) IS the blat. Shorten it for a tighter stab, lengthen it toward
+// 250 ms for something that swells like a section coming in.
+static const ModRoute R_BRASS[] = {
+  VEL_TO_AMP,
+  { SRC_FILTENV,  DST_CUTOFF, -20.0f },  // dark -> bright over fTau
+  { SRC_VELOCITY, DST_CUTOFF,  14.0f },  // blow harder, get brighter
+  { SRC_POSITION, DST_CUTOFF,  12.0f, SRC_CONST, CURVE_LINEAR, 2.5f },
+  // A RESONANT PEAK RIDING THE ATTACK. res sits at 1.60 and this lifts it to
+  // ~2.5 for the duration of the blat, then it settles. A brass bell has a
+  // strong formant that is loudest exactly while the note is speaking, and a
+  // moving peak over a sawtooth is how you fake one. Costs one route.
+  // 1.30 -> 0.30, and the base res drops 1.60 -> 1.05 on the preset row.
+  // RESONANCE IS NOT POWER. Chasing "powerful" by raising Q put a peak of 2.90
+  // on the attack, and a strong narrow peak sweeping through the harmonics is
+  // precisely a wah — hence "duck". It also reads as tinny, because the peak
+  // lifts whatever upper harmonic sits at the cutoff and leaves everything
+  // below it relatively quieter.
+  //
+  // Real brass does have a formant, but a bell's radiation is BROAD. A
+  // state-variable filter at Q near 3 is far narrower than anything acoustic.
+  // Power here comes from harmonic density — many partials at once, which is
+  // a high cutoff and two full oscillators — not from emphasising one.
+  { SRC_FILTENV,  DST_RES,      0.30f },
+  // A FIXED FORMANT — the cure for "electronic".
+  //
+  // Every cutoff in this synth is a multiple of the note's own pitch, so the
+  // filter tracks the keyboard exactly. That is deliberate (see Preset.h) and
+  // it is also the most synthetic thing here: a real trumpet's bell resonates
+  // at ONE frequency whatever you play, which is why its low notes sound rich
+  // and its high notes sound piercing. Perfect tracking gives every note the
+  // same spectrum transposed, and the ear reads that as a machine.
+  //
+  // keytrack runs (note-60)/12, so +-1 across this keyboard, and one octave of
+  // pitch is +12 semitones of cutoff. Depth -12 would cancel the tracking
+  // completely and pin the formant at an absolute frequency; -4 cancels a
+  // third of it, enough to stop every note being the same spectrum transposed
+  // without making the low notes noticeably duller than the high ones.
+  { SRC_KEYTRACK, DST_CUTOFF,  -4.0f },
+  // ...and a slow SECOND opening long after the blat is done. NOTEAGE ramps
+  // over 2 s, so this is the player leaning into a held note rather than the
+  // attack transient. Two brightness envelopes on different timescales is
+  // most of what separates a sustained brass note from a saw through a filter.
+  { SRC_NOTEAGE,  DST_CUTOFF,   7.0f, SRC_CONST, CURVE_SQRT },
+  { SRC_LFO1,     DST_PITCH,    9.0f },
+  { SRC_RANDOM,   DST_DETUNE,   6.0f },
+};
+
+// A Rhodes is two sounds decaying at DIFFERENT RATES: a sine-ish body that
+// rings for over a second, and a bell-like tine two octaves up that is gone in
+// a couple of hundred milliseconds. There is one amplitude envelope per voice,
+// so the second rate has to come from somewhere else — here, filtEnv driving
+// oscB's LEVEL instead of the filter. mixB is 0.00, so the tine exists ONLY as
+// this route: it appears at note-on and fades over fTau (190 ms) while the body
+// decays on its own tau (1500 ms). Two decay rates, one envelope object.
+//
+// `via SRC_VELOCITY` is the character of the whole instrument. Lean on it and
+// the bell barks; play softly and you get very nearly pure sine. On a real
+// Rhodes that is the hammer striking nearer the tine, and it is why the thing
+// answers to touch the way it does — the dynamic is TIMBRE, not just level.
+static const ModRoute R_EPIANO[] = {
+  VEL_TO_AMP,
+  { SRC_FILTENV,  DST_OSCB,    0.90f, SRC_VELOCITY },   // the tine
+  { SRC_KEYTRACK, DST_OSCB,    0.20f },  // bell up top, rounder in the bass
+  { SRC_VELOCITY, DST_CUTOFF, 12.0f },
+  { SRC_POSITION, DST_CUTOFF, 10.0f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  // Tremolo, scaled by velocity for the same reason R_TREMOLO is: a bare
+  // additive AMP route clamps to silence on soft notes.
+  { SRC_LFO1,     DST_AMP,     0.12f, SRC_VELOCITY },
+};
+
 // ---- the table -----------------------------------------------------------
 // WAVEFORM_BANDLIMIT_*, not the plain names. AudioSynthWaveform's ordinary
 // SAWTOOTH, SQUARE and PULSE are generated naively — a raw ramp or a raw step
@@ -577,6 +728,100 @@ const Preset PRESET[] = {
     1.00, 0.00, 0.00,
     { 5.0f, LFO_SINE, 400.0f, 700.0f }, LFO_OFF, NROUTES(R_BOWED),
     0.00, 0.40, 0.00,   0,   0.00,   ART_CONTINUOUS },
+
+// ============================ ENSEMBLE =====================================
+// Slow in, slow out, and never decaying while held. The long release (900 ms)
+// is most of what makes it sound like a section rather than a synth: chords
+// overlap each other instead of stopping dead.
+// semiB -12 is the whole fix for "tinny": oscB an OCTAVE DOWN at 0.85, present
+// the entire time, so every note carries its own bass. Cutoff base comes back
+// down to 2.4x as well — v2 sat around 15x the fundamental at ordinary playing
+// depth, which passes everything and leaves a single saw sounding like wire.
+// 6 cents is now only there to keep oscA and oscB's second harmonic from
+// locking dead flat, not to do any of the work.
+// oscB SAWTOOTH -> TRIANGLE, and res 0.90 -> 0.75.
+//
+// The octave-down partner is there for WEIGHT, and a sawtooth pays for that
+// weight with a second full set of harmonics falling off at only 6 dB/octave.
+// A triangle falls off at 12 and carries odd partials only, so it delivers the
+// same body with a fraction of the buzz — which is the single biggest
+// sweetness lever available without abandoning the saw that makes it a string.
+//
+// A side effect worth knowing: a triangle an octave down has partials at
+// f/2, 3f/2, 5f/2 and NOTHING at f, so it cannot beat with oscA's fundamental
+// at all. The 6 cents of detune is now inert for this pair. That is fine —
+// the ensemble was never coming from within a voice, it comes from the
+// per-note RANDOM offset across a chord — but it does mean a single held note
+// is now perfectly steady.
+//
+// res 0.75 is essentially neutral (0.7 is flat). Any emphasis at all puts a
+// bump on a harmonic, and a bump is the opposite of sweet.
+{ "strings", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_TRIANGLE,           -12,  6.0, 0.85,
+   240,  1e9f,  900, 0.55,    2.6,  2.1, 1400, 0.75,
+    1.00, 0.00, 0.00,
+    { 4.6f, LFO_SINE, 450.0f, 800.0f }, LFO_OFF, NROUTES(R_STRINGS),
+    0.00, 0.55, 0.22, 300,   0.30,   ART_STRUCK },
+
+// Same oscillators and filter as strings above; only the gesture differs.
+// fPeak == fBase because a continuous patch must not carry an attack shape of
+// its own — any sweep here is a second envelope competing with the one your
+// finger is drawing. No delay either: a 300 ms echo argues with a line you are
+// still bowing. Release 600 ms, shorter than struck strings, because the note
+// already ends when you lift rather than ringing on.
+// Carries the same sweetening as strings: oscB is a TRIANGLE an octave down,
+// so the weight arrives without a second sawtooth's worth of buzz, and res
+// drops to 0.80 which is very nearly flat.
+//
+// fBase goes 2.6 -> 1.8 rather than following strings down to 2.1, and the
+// reason is the gesture. On a CONTINUOUS patch position drives loudness AND
+// brightness, so the bottom of the travel is where the note is quietest and
+// purest — it can afford to be darker than a struck patch's resting tone,
+// and starting at 1.8x buys back the expressive RANGE that pulling the top
+// down costs. 1.8x -> 7.2x is the reed shape: sweet where you begin, open
+// where you commit.
+{ "strbow",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_TRIANGLE,           -12,  6.0, 0.85,
+    30,  1e9f,  600, 0.55,    1.8,  1.8,  400, 0.80,
+    1.00, 0.00, 0.00,
+    { 4.6f, LFO_SINE, 400.0f, 800.0f }, LFO_OFF, NROUTES(R_STRBOW),
+    0.00, 0.55, 0.00,   0,   0.00,   ART_CONTINUOUS },
+
+// fPeak == fBase on purpose: the sweep that matters is the RISING one in the
+// route table, and leaving the built-in falling sweep switched on would fight
+// it. A little drive adds the harmonics a filter can then bite on.
+// semiB -12 at 0.65 is standard synth-brass practice and the fix for "small":
+// two NEAR-UNISON saws give width and no weight at all — the same failure that
+// made strings v1 thin — so the second oscillator goes an octave down at
+// partial level instead. oscA stays the voice; oscB is the chest behind it.
+//
+// drive stays at 0.20 and should not go much higher. The waveshaper is a BUS
+// effect (mixOut -> shaper), applied to all 25 voices summed, so it cannot do
+// what real brass does — get brighter as ONE note gets louder, through
+// nonlinear steepening inside the bore. Push it and chords crunch instead.
+// res 1.60 -> 1.05 and fBase 5.0 -> 6.5. Together with the resonance route
+// above this is backing out the "raise Q for power" idea entirely and getting
+// brightness the honest way: a higher cutoff, so more partials are simply
+// present, rather than a peak making a few of them loud.
+{ "brass",   WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH, -12, 11.0, 0.65,
+    45,  1e9f,  260, 0.62,    6.5,  6.5,  110, 1.05,
+    1.00, 0.00, 0.00,
+    { 5.0f, LFO_SINE, 350.0f, 500.0f }, LFO_OFF, NROUTES(R_BRASS),
+    0.20, 0.30, 0.00,   0,   0.00,   ART_STRUCK },
+
+// semiB 24 puts the tine two octaves up; the 6 cents of detune against it is
+// what stops the bell sounding like a plain harmonic and starts it shimmering.
+// mixB is 0.00 — the tine is entirely the route table's doing.
+{ "epiano",  WAVEFORM_SINE,     WAVEFORM_SINE,      24,  6.0, 0.00,
+     2,  1500,  420, 0.90,    9.0,  9.0,  190, 0.70,
+    1.00, 0.00, 0.00,
+    { 5.6f, LFO_SINE, 0.0f, 250.0f }, LFO_OFF, NROUTES(R_EPIANO),
+// NO DELAY, and the reason is worth keeping. The bus here is a plain delay
+// line, not a chorus: at 260 ms and 0.18 send it puts a clean copy of the note
+// a quarter of a second behind itself. On a pad that is ambience; on a patch
+// with a 2 ms attack and a bell transient it is a SECOND ATTACK, which is
+// exactly how it was heard. Anything percussive wants either no delay or one
+// short enough to thicken rather than repeat (under ~40 ms), and reverb is the
+// better tool for space at this attack speed.
+    0.00, 0.34, 0.00,   0,   0.00,   ART_STRUCK },
 
 // ============================ DIAGNOSTIC ===================================
 { "presstest", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH, 0,  6.0, 1.00,
