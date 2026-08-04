@@ -87,6 +87,31 @@ struct Preset {
   // at a static GestureConfig to override; copy GESTURE_DEFAULT and change the
   // fields you mean, because this is read positionally like everything else.
   const GestureConfig *gesture;
+
+  // ---- phase modulation ---------------------------------------------------
+  // Modulator frequency as a multiple of the note. ZERO DISABLES FM, which is
+  // why every existing preset is unaffected — they end at `articulation` and
+  // this zero-fills.
+  //
+  // When non-zero the FM carrier REPLACES oscA (same slot, same level, same
+  // envelope) and oscB stays available underneath, so a patch can be pure FM
+  // or an FM carrier layered over an ordinary oscillator. The index is
+  // DST_FM, 0..1, mapping to 0..FM_MAX_DEG of peak phase deviation.
+  //
+  // The ratio is the character, and integer versus non-integer is the whole
+  // distinction:
+  //   1.0        carrier and modulator in unison. Warm, harmonic, the classic
+  //              DX7 electric piano — sidebands land on harmonics.
+  //   2.0, 3.0   brighter, still harmonic. Reedy, hollow.
+  //   1.41, 2.76 INHARMONIC. Sidebands land between harmonics and refuse to
+  //              fuse, which is what metal, bells and tines actually sound
+  //              like. 2.76 is a real struck bar's second mode.
+  //
+  // Phase modulation, not true frequency modulation — the same choice the DX7
+  // made. With PM the index does not scale with modulator frequency, so a
+  // patch keeps its timbre across the keyboard instead of getting brighter as
+  // you play up.
+  float fmRatio;
 };
 
 extern const Preset PRESET[];

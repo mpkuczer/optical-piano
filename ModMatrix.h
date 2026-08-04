@@ -67,6 +67,20 @@ enum ModDest : uint8_t {
   DST_PWM,         // pulse width offset, added to 0.5
   DST_RES,         // resonance offset
   DST_OSCB,        // oscillator B level offset, added to mixB
+  DST_FM,          // 0..1 PHASE MODULATION INDEX, when the preset sets fmRatio.
+                   //   This is the one destination that does not shape a sound
+                   //   the oscillators already make — it CREATES partials, at
+                   //   frequencies carrier +- n*modulator, and when the ratio
+                   //   is non-integer those partials are inharmonic. Nothing
+                   //   subtractive can do that: a filter can only take away
+                   //   from a harmonic series, never move a partial off it.
+                   //
+                   //   Which is why a Rhodes was out of reach. A tine is a
+                   //   stiff rod with inharmonic modes and a spectrum that
+                   //   evolves through the whole note; the DX7 owned that
+                   //   sound because a decaying index sweeps timbre
+                   //   continuously, and that is exactly
+                   //   { SRC_FILTENV, DST_FM, depth, via SRC_VELOCITY }.
   NUM_DESTS
 };
 

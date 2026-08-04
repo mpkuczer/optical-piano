@@ -116,6 +116,16 @@ static const float VERB_LP_HZ = 4500.0f;
 // ---- audio objects -------------------------------------------------------
 static AudioSynthWaveform        oscA[NUM_VOICES];
 static AudioSynthWaveform        oscB[NUM_VOICES];
+// FM pair. oscF is a carrier that takes a phase-modulation input; oscM drives
+// it. They are SEPARATE objects rather than a conversion of oscA because
+// AudioSynthWaveformModulated has no pulseWidth(), and DST_PWM is load-bearing
+// for wurli and shimmer.
+//
+// Fifty extra objects for 25 voices sounds expensive and is not: both classes
+// return early when magnitude is 0 (synth_waveform.cpp) without allocating a
+// block, so a preset with fmRatio 0 pays essentially nothing for them.
+static AudioSynthWaveformModulated oscF[NUM_VOICES];
+static AudioSynthWaveform          oscM[NUM_VOICES];
 static AudioMixer4               vmix[NUM_VOICES];   // sums the two oscillators
 static AudioFilterStateVariable  vfilt[NUM_VOICES];
 static AudioMixer4               fmix[NUM_VOICES];   // blends LP/BP/HP
@@ -190,6 +200,12 @@ static void buildGraph() {
   for (int i = 0; i < NUM_VOICES; i++) {
     pc[pcCount++] = new AudioConnection(oscA[i],  0, vmix[i],  0);
     pc[pcCount++] = new AudioConnection(oscB[i],  0, vmix[i],  1);
+    // Modulator into the carrier's input 0 — that is the modulation input
+    // (synth_waveform.cpp reads moddata from 0, shapedata from 1). The carrier
+    // then joins the voice on vmix input 2, which was already allocated and
+    // zeroed, so the graph does not change shape.
+    pc[pcCount++] = new AudioConnection(oscM[i],  0, oscF[i],  0);
+    pc[pcCount++] = new AudioConnection(oscF[i],  0, vmix[i],  2);
     pc[pcCount++] = new AudioConnection(vmix[i],  0, vfilt[i], 0);
     // Outputs 0/1/2 of the state-variable filter are lowpass, bandpass and
     // highpass of the SAME signal, computed together. Blending is free.
@@ -301,7 +317,17 @@ void synthBegin() {
     oscB[i].amplitude(0.0f);
 
     vmix[i].gain(0, 1.0f); vmix[i].gain(1, 1.0f);
-    vmix[i].gain(2, 0.0f); vmix[i].gain(3, 0.0f);
+    vmix[i].gain(2, 1.0f); vmix[i].gain(3, 0.0f);
+
+    // Full-scale phase deviation for a modulator at amplitude 1.0. 600 degrees
+    // is 10.5 radians, which puts the whole musically useful index range
+    // (roughly 0 to 10) across a DST_FM depth of 0..1 — so a route depth reads
+    // directly as "how bright", with 0.3 mellow and 0.8 brassy.
+    oscF[i].phaseModulation(600.0f);
+    oscF[i].begin(WAVEFORM_SINE);
+    oscF[i].amplitude(0.0f);
+    oscM[i].begin(WAVEFORM_SINE);
+    oscM[i].amplitude(0.0f);
 
     vfilt[i].octaveControl(0.0f);
     vfilt[i].resonance(PRESET[0].res);
@@ -437,6 +463,8 @@ void synthNoteOn(int row, int col, float velocity) {
   // FROM; folding this instant's modulation into them would bake it in forever.
   float aFreq0 = fA, bFreq0 = fB;
   float bLevel0 = p.mixB, cut0 = peak, res0 = p.res, pw0 = 0.5f;
+  const bool useFM = (p.fmRatio > 0.0f);
+  float fmIdx0 = 0.0f;
   {
     ModContext ctx;
     ctx.velocity = voiceVel[i];
@@ -462,6 +490,7 @@ void synthNoteOn(int row, int col, float velocity) {
                     FILT_MIN_HZ, FILT_MAX_HZ);
     res0 = clampf(p.res + mod0[DST_RES], 0.7f, 4.5f);
     pw0  = clampf(0.5f + mod0[DST_PWM], 0.05f, 0.95f);
+    fmIdx0 = clampf(mod0[DST_FM], 0.0f, 1.0f);
     // The same headroom guard synthUpdate applies, for the same reason: the
     // earlier `amp /= (1 + p.mixB)` normalised against the UNMODULATED mixB,
     // and a route can push the pair well past that.
@@ -484,8 +513,20 @@ void synthNoteOn(int row, int col, float velocity) {
   oscB[i].pulseWidth(pw0);
   oscA[i].begin(p.waveA);
   oscB[i].begin(p.waveB);
-  oscA[i].amplitude(amp);
+  // The FM carrier OCCUPIES oscA'S SLOT rather than adding to it: same
+  // frequency, same level, same envelope, and exactly one of the two sounds.
+  // That keeps the gain staging honest — `amp /= (1 + mixB)` above still
+  // describes the whole voice — and leaves oscB free to layer underneath.
+  oscA[i].amplitude(useFM ? 0.0f : amp);
   oscB[i].amplitude(amp * bLevel0);
+  if (useFM) {
+    oscM[i].frequency(aFreq0 * p.fmRatio);
+    oscM[i].begin(WAVEFORM_SINE);
+    oscM[i].amplitude(fmIdx0);
+    oscF[i].frequency(aFreq0);
+    oscF[i].begin(WAVEFORM_SINE);
+  }
+  oscF[i].amplitude(useFM ? amp : 0.0f);
   // Seed the smoothers at the modulated values too. Seeding them at the
   // unmodulated ones is what turned the step into a ramp — which is worse,
   // not better: a click is a click, but a ramp arriving late is a second note.
@@ -557,6 +598,12 @@ void synthUpdate() {
     if (voiceAmp0[i] * ampEnv < AMP_FLOOR || spent) {
       oscA[i].amplitude(0.0f);
       oscB[i].amplitude(0.0f);
+      // The modulator too, not just the carrier. A silent carrier is inaudible
+      // either way, but a modulator left running is an oscillator that never
+      // takes the magnitude==0 early-out — it would allocate a block every
+      // update for all 25 voices, forever.
+      oscF[i].amplitude(0.0f);
+      oscM[i].amplitude(0.0f);
       env[i].noteOff();
       voiceDecaying[i] = false;
       continue;
@@ -599,8 +646,18 @@ void synthUpdate() {
     const float kAmp = (float)UPDATE_MS / (AMP_SMOOTH_MS + (float)UPDATE_MS);
     voiceAmpSmA[i] += kAmp * (a          - voiceAmpSmA[i]);
     voiceAmpSmB[i] += kAmp * (a * bLevel - voiceAmpSmB[i]);
-    oscA[i].amplitude(voiceAmpSmA[i]);
+    const bool fmOn = (p.fmRatio > 0.0f);
+    oscA[i].amplitude(fmOn ? 0.0f : voiceAmpSmA[i]);
     oscB[i].amplitude(voiceAmpSmB[i]);
+    if (fmOn) {
+      oscF[i].amplitude(voiceAmpSmA[i]);
+      // The INDEX is not smoothed by kAmp. It is a timbre control, not a level,
+      // and the whole point of an FM electric piano is that the index falls
+      // fast at the start of the note — smoothing it with the amplitude pole
+      // would blunt exactly the transient the patch exists for. Gesture.cpp
+      // and the filtEnv already provide whatever smoothing it needs.
+      oscM[i].amplitude(clampf(mod[DST_FM], 0.0f, 1.0f));
+    }
 
     // --- apply: pitch (cents on both) and detune (cents on B only) --------
     if (mod[DST_PITCH] != 0.0f || mod[DST_DETUNE] != 0.0f) {
@@ -608,6 +665,13 @@ void synthUpdate() {
       float mB = powf(2.0f, (mod[DST_PITCH] + mod[DST_DETUNE]) / 1200.0f);
       oscA[i].frequency(voiceFA[i] * mA);
       oscB[i].frequency(voiceFB[i] * mB);
+      // Carrier AND modulator, or the ratio between them drifts and vibrato
+      // would change the timbre rather than the pitch. They have to move
+      // together, by the same factor, always.
+      if (fmOn) {
+        oscF[i].frequency(voiceFA[i] * mA);
+        oscM[i].frequency(voiceFA[i] * mA * p.fmRatio);
+      }
     }
 
     // --- apply: cutoff. The sweep is the base curve; routes offset it in

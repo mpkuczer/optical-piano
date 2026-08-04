@@ -224,7 +224,9 @@ static const ModRoute R_DRIFT[] = {
 // strike-relative signal as well was measuring the same thing twice. The
 // exponents put the expression in the last third of travel, where this sensor
 // still has resolution. Safe to do here because this patch is STRUCK and does
-// route velocity — see R_HARPSI for the case where neither is true.
+// route velocity. A PLUCKED patch would not be: PLUCKED hardcodes velocity to
+// 0.5, so SRC_VELOCITY is a constant and there is no strike information in the
+// matrix at all — the double-counting argument has nothing to stand on there.
 static const ModRoute R_OBIE[] = {
   VEL_TO_AMP,
   { SRC_VELOCITY, DST_CUTOFF, 16.0f },
@@ -332,12 +334,75 @@ static const ModRoute R_PRESSTEST[] = {
 static const ModRoute R_HARPSI[] = {
   VEL_TO_AMP,
   // Source/via swapped so position takes the exponent, LFO rides as the
-  // multiplier. Depths 9 -> 11 and 10 -> 12 because x^3 and x^4 spend the
-  // bottom of the range doing nothing.
+  // multiplier.
   { SRC_POSITION, DST_PITCH,  11.0f, SRC_LFO1, CURVE_LINEAR, 3.0f },  // finger vibrato
   { SRC_POSITION, DST_CUTOFF, 12.0f, SRC_CONST, CURVE_LINEAR, 4.0f },
-  { SRC_KEYTRACK, DST_CUTOFF,  4.0f },
-  { SRC_RANDOM,   DST_DETUNE,  5.0f },
+  // +4 -> -5, and this was half of "electronic and tinny".
+  //
+  // Every cutoff here is already a multiple of the note's own pitch, so the
+  // filter tracks the keyboard exactly. A POSITIVE keytrack depth made the top
+  // octave brighter still — pitch tracking plus more on top — which is why the
+  // high notes were the thinnest. Negative pins some of the brightness to an
+  // absolute frequency instead, the way a real soundboard resonance does not
+  // move when you change note. Same trick brass needed.
+  { SRC_KEYTRACK, DST_CUTOFF, -5.0f },
+  // 5 -> 3. oscB is now a pure sine two octaves up, sitting almost exactly on
+  // oscA's 4th harmonic, and "perfectly resonant" means letting it lock there
+  // rather than beat against it.
+  { SRC_RANDOM,   DST_DETUNE,  3.0f },
+  // THE BELL, STRUCK. Epiano's tine trick, but short and small: filtEnv runs
+  // 1 -> 0 over fTau (150 ms), so this is an extra ring of the high partial at
+  // the moment of the pluck, on top of the sine that keeps sounding underneath
+  // it. Via velocity, so a hard pluck rings and a soft one just speaks.
+  { SRC_FILTENV,  DST_OSCB,    0.30f, SRC_VELOCITY },
+};
+
+// ============================ STRUCK BAR ===================================
+// A GLOCKENSPIEL, and the one thing that makes it one is INHARMONICITY.
+//
+// The previous attempt at this became indistinguishable from epiano, for a
+// reason worth writing down: it used semiB 24, and 24 semitones is EXACTLY the
+// 4th harmonic. A partial sitting on a harmonic FUSES with the fundamental and
+// the ear hears one tone with a bright colour — which is precisely what makes
+// epiano's tine golden rather than metallic. Metal sounds like metal because
+// its partials refuse to fuse.
+//
+// A free-free bar's modes are 1 : 2.756 : 5.404 : 8.933 — nowhere near
+// integers. semiB 18 is 2.83x, close to that second mode and, critically,
+// sitting BETWEEN the 2nd harmonic (2.0) and the 3rd (3.0) where nothing can
+// lock to it. That single number is the difference between a bell and a bar.
+//
+// TWO CORRECTIONS, both mine, and worth recording because they are the two
+// ways an inharmonic partial goes wrong.
+//
+// semiB 18 -> 17. Eighteen semitones is an octave plus SIX, and six semitones
+// is the tritone — the most dissonant interval there is. 2.828x happened to be
+// arithmetically closest to the bar's 2.756 mode, and I picked it on that
+// number alone without checking what interval it spelled. 17 is 2.670x, only
+// 3% further from the ideal, and it spells an octave plus a perfect fourth.
+//
+// mixB 0.85 -> 0.00, with the partial now arriving through filtEnv instead.
+// This is the bigger error. A partial only reads as TIMBRE while the
+// fundamental clearly dominates; at 0.85 the ear stops hearing colour and
+// starts hearing a second note, and then the interval matters enormously.
+// Gated through filtEnv the clang exists for ~200 ms and is gone, which is
+// also what a real bar does — its high modes decay far faster than its first.
+//
+// That means this shares epiano's mechanism after all. I avoided it originally
+// to keep the patches distinct, which was the wrong reason: the mechanism is
+// correct for both, and the RATIO is the real distinction. epiano's +24 is
+// exactly the 4th harmonic and fuses into one golden tone; +17 cannot fuse and
+// rings as metal. One number, entirely different instrument.
+static const ModRoute R_GLOCK[] = {
+  VEL_TO_AMP,
+  // The strike clang: inharmonic, loud for an instant, then gone — leaving a
+  // pure triangle ringing on. Metallic attack, clean tone.
+  { SRC_FILTENV,  DST_OSCB,   0.55f, SRC_VELOCITY },
+  // No vibrato, no tremolo, no LFO of any kind. A struck bar cannot bend and
+  // cannot swell; every one of those absences is load-bearing.
+  { SRC_VELOCITY, DST_CUTOFF, 14.0f },
+  { SRC_POSITION, DST_CUTOFF,  8.0f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  { SRC_KEYTRACK, DST_CUTOFF, -4.0f },
 };
 
 // ============================ SHOWCASE =====================================
@@ -416,9 +481,43 @@ static const ModRoute R_BOWED[] = {
   // threshold changes.
   { SRC_CONST,    DST_AMP,   -1.021f },
   { SRC_POSITION, DST_AMP,    0.95f, SRC_CONST, CURVE_SQUARE },
-  { SRC_POSITION, DST_CUTOFF, 40.0f },
-  { SRC_POSITION, DST_RES,     0.80f, SRC_CONST, CURVE_SQUARE },
-  { SRC_LFO1,     DST_PITCH,  10.0f, SRC_POSITION },
+  // SWEETENED, same treatment as strings and strbow, but this patch keeps its
+  // own identity: two full saws in NEAR-UNISON rather than an octave-down
+  // triangle. That is the difference between one player and a section — a
+  // violin gets its richness from a body, not from a second register — so
+  // bowed stays dense and single-register while strbow carries the weight.
+  //
+  // 40 -> 30 semitones. The old top reached 15x the fundamental, which is where
+  // the detuned pair's rough upper harmonics were finally getting through: the
+  // dark fBase of 1.5x was hiding them at rest and the wide sweep exposed them
+  // under the finger. 30 lands at 8.5x, still a 5.7:1 range — wider than
+  // strbow's 4:1, which is right for the more expressive of the two.
+  { SRC_POSITION, DST_CUTOFF, 30.0f },
+  // THE RESONANCE ROUTE IS GONE, and res is now a constant 1.50 on the preset
+  // row. This is the thing that was making it dead.
+  //
+  // Compare reed, which is the liveliest patch here: its res is 1.60 and it
+  // NEVER MOVES, while the cutoff sweeps 1.6x -> 9x. A fixed peak travelling
+  // past the harmonics one by one is a formant sweep, and that sweep is the
+  // "nasal middle" that makes reed sound like an instrument. Bowed had the
+  // peak climbing alongside the cutoff, so the two moved together and the
+  // resonance never swept past anything — it just got sharper. Sweetening it
+  // to 1.55 only made a weak effect weaker.
+  //
+  // oscB ARRIVES IN THE UPPER HALF, also reed's structure. The bottom of the
+  // travel is now a single saw: no partner, so no beating at all, which is as
+  // pure as this patch can get. The detuned second oscillator joins as you
+  // press, and that arrival is an EVENT — something happening at a particular
+  // depth rather than everything sliding smoothly together.
+  { SRC_CONST,    DST_OSCB,  -0.75f },
+  { SRC_POSITION, DST_OSCB,   0.75f, SRC_CONST, CURVE_SQUARE },
+  // VIBRATO STEERED INTO THE UPPER HALF, as you asked. Source and via swapped
+  // so POSITION can take an exponent — only the source is shaped, and `via`
+  // multiplies in raw. Written the obvious way round (LFO as source, position
+  // as via) vibrato grows linearly and is a near-constant fraction of depth,
+  // which is not a playable gesture. At x^3: 2 cents at half travel, 6.8 at
+  // three quarters, 16 at the bottom.
+  { SRC_POSITION, DST_PITCH,  16.0f, SRC_LFO1, CURVE_LINEAR, 3.0f },
   { SRC_RANDOM,   DST_DETUNE,  4.0f },
 };
 
@@ -573,6 +672,34 @@ static const ModRoute R_EPIANO[] = {
   { SRC_LFO1,     DST_AMP,     0.12f, SRC_VELOCITY },
 };
 
+// The OTHER electric piano, and a genuinely different instrument rather than a
+// second flavour of the one above. A Rhodes strikes a TINE — a stiff rod whose
+// tone is nearly a pure high partial, which is why epiano is sine + sine and
+// why its character lives in a bell that fades. A Wurlitzer strikes a flat
+// steel REED read by an electrostatic pickup, and a reed is hollow: strong odd
+// harmonics, closer to a pulse than to a sine.
+//
+// The identity is the BARK. Hit a Wurli hard and the reed's own nonlinearity
+// makes it snarl — far more brightness-per-velocity than a Rhodes, and the
+// tone gets nasal as well as loud. Two routes do that here: a steep velocity
+// curve on the cutoff, and velocity NARROWING the pulse, since a narrower
+// pulse is more odd-harmonic and more hollow. Play it softly and it is a
+// rounded, almost flutey thing; lean on it and it snaps.
+static const ModRoute R_WURLI[] = {
+  VEL_TO_AMP,
+  // x^2 on the cutoff: soft notes stay well back, hard notes jump. epiano's
+  // equivalent route is a flat 12 semitones with no curve at all — that
+  // difference in shape IS the difference between a tine and a reed.
+  { SRC_VELOCITY, DST_CUTOFF, 22.0f, SRC_CONST, CURVE_SQUARE },
+  { SRC_VELOCITY, DST_PWM,   -0.18f, SRC_CONST, CURVE_SQUARE },
+  { SRC_POSITION, DST_CUTOFF, 10.0f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  { SRC_KEYTRACK, DST_CUTOFF, -4.0f },
+  // Tremolo is not an effect bolted onto a Wurlitzer, it is wired into the
+  // instrument — hence deeper than epiano's 0.12. Via velocity, because a bare
+  // additive AMP route clamps to silence on soft notes.
+  { SRC_LFO1,     DST_AMP,     0.22f, SRC_VELOCITY },
+};
+
 // ---- the table -----------------------------------------------------------
 // WAVEFORM_BANDLIMIT_*, not the plain names. AudioSynthWaveform's ordinary
 // SAWTOOTH, SQUARE and PULSE are generated naively — a raw ramp or a raw step
@@ -698,11 +825,37 @@ const Preset PRESET[] = {
 // but the finger stays on the key afterwards, and that continuing motion adds
 // the vibrato. Struck trigger, expressive hold: neither a piano nor a
 // theremin, and impossible to express before gesture and sound were separated.
-{ "harpsi",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_PULSE,      0,  7.0, 0.55,
-     2,  1400,  260, 0.55,   14.0,  4.0,  240, 1.30,
+// Reinstated as it was: a golden plucked string with a small bell on it.
+// oscB is a pure sine two octaves up, exactly oscA's 4th harmonic, so it
+// reinforces a partial the string already has rather than adding a voice —
+// which is what makes it ring rather than clang. fBase 7.0 keeps it glowing
+// after the pluck instead of going dull the moment the transient passes.
+{ "harpsi",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_SINE,               24,  4.0, 0.40,
+     2,  1600,  300, 0.60,   16.0,  7.0,  150, 1.30,
     1.00, 0.00, 0.00,
     { 5.2f, LFO_SINE, 150.0f, 400.0f }, LFO_OFF, NROUTES(R_HARPSI),
-    0.08, 0.30, 0.00,   0,   0.00,   ART_PLUCKED },
+    0.06, 0.38, 0.00,   0,   0.00,   ART_PLUCKED },
+
+// SILVERY, BRIGHT AND FOCUSED — see R_GLOCK for why semiB 18 is the whole
+// patch. Everything else here serves "focused":
+//
+//   cents 0.0   Nothing beats against anything. Beating is movement, and
+//               movement is the opposite of focus. This is the only patch in
+//               the library with the detune switched fully off.
+//   res 0.75    Essentially flat. A resonant peak is a COLOUR, and silver is
+//               the absence of colour — the brightness has to come from the
+//               cutoff being high, never from emphasis.
+//   verb 0.28   Low. Reverb is diffusion, and a diffuse glockenspiel is a
+//               wash rather than a struck bar.
+//
+// fPeak 26 -> fBase 14 over 90 ms is the mallet: a bright flash that settles
+// almost immediately, doing the job epiano's oscB gate does but through the
+// filter, so the two patches share no mechanism.
+{ "glock",   WAVEFORM_TRIANGLE,           WAVEFORM_TRIANGLE,           17,  0.0, 0.00,
+     1,  1100,  200, 0.72,   26.0, 14.0,  200, 0.75,
+    1.00, 0.00, 0.00,
+    LFO_OFF, LFO_OFF, NROUTES(R_GLOCK),
+    0.00, 0.28, 0.00,   0,   0.00,   ART_STRUCK },
 
 // ============================ SHOWCASE =====================================
 { "chordtune",WAVEFORM_TRIANGLE, WAVEFORM_TRIANGLE,  0,  3.0, 0.80,
@@ -723,8 +876,19 @@ const Preset PRESET[] = {
     { 5.6f, LFO_SINE, 300.0f, 500.0f }, LFO_OFF, NROUTES(R_REED),
     0.05, 0.35, 0.00,   0,   0.00,   ART_CONTINUOUS },
 
-{ "bowed",   WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0, 11.0, 1.00,
-    30,  1e9f,  350, 0.50,    1.5,  1.5,  400, 1.20,
+// cents 11 -> 5, res 1.20 -> 1.00.
+//
+// The detune was the roughness. Two saws c cents apart have their nth harmonic
+// beating at n times the fundamental rate, and at 11 cents the 8th harmonic is
+// already at 22 Hz — past where beating stops sounding like chorus and starts
+// sounding like grain. At 5 cents everything through the 15th harmonic stays
+// under 20 Hz. This patch got away with it for a long time only because its
+// fBase of 1.5x cut those harmonics off at rest; the wide filter sweep is what
+// eventually let them out.
+// res 1.00 -> 1.50 and FIXED — see the route table. This is reed's number and
+// reed's arrangement: a stationary peak with the cutoff sweeping underneath it.
+{ "bowed",   WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  5.0, 1.00,
+    30,  1e9f,  350, 0.50,    1.5,  1.5,  400, 1.50,
     1.00, 0.00, 0.00,
     { 5.0f, LFO_SINE, 400.0f, 700.0f }, LFO_OFF, NROUTES(R_BOWED),
     0.00, 0.40, 0.00,   0,   0.00,   ART_CONTINUOUS },
@@ -822,6 +986,24 @@ const Preset PRESET[] = {
 // short enough to thicken rather than repeat (under ~40 ms), and reverb is the
 // better tool for space at this attack speed.
     0.00, 0.34, 0.00,   0,   0.00,   ART_STRUCK },
+
+// Sits next to epiano on purpose — the pair is a Rhodes and a Wurlitzer, and
+// they are only comparable side by side. Everything here differs from the
+// patch above in the direction "reed, not tine":
+//
+//   oscA PULSE, not SINE   a reed is hollow; a tine is nearly a pure partial
+//   mixB 0.45 CONSTANT     no gated bell. The Wurli's colour is in oscA, and
+//                          the sine underneath is just body, always present
+//   semiB 0                unison, not two octaves up — nothing bell-like
+//   fBase 5.0, res 1.10    darker and slightly peaky, where epiano is open
+//                          and flat. The bark needs somewhere to bark FROM
+//   tau 1100 vs 1500       shorter; a Wurli is punchier and less sustaining
+//   drive 0.10             the one patch where bus distortion is idiomatic
+{ "wurli",   WAVEFORM_BANDLIMIT_PULSE,    WAVEFORM_SINE,                0,  4.0, 0.45,
+     2,  1100,  300, 0.80,   11.0,  5.0,  220, 1.10,
+    1.00, 0.00, 0.00,
+    { 5.4f, LFO_SINE, 0.0f, 200.0f }, LFO_OFF, NROUTES(R_WURLI),
+    0.10, 0.30, 0.00,   0,   0.00,   ART_STRUCK },
 
 // ============================ DIAGNOSTIC ===================================
 { "presstest", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH, 0,  6.0, 1.00,

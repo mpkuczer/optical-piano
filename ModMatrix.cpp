@@ -139,7 +139,7 @@ static const char *SRC_NAMES[] = {
   "keyvel"
 };
 static const char *DST_NAMES[] = {
-  "pitch", "detune", "cutoff", "amp", "pwm", "res", "oscB"
+  "pitch", "detune", "cutoff", "amp", "pwm", "res", "oscB", "fm"
 };
 static_assert(sizeof(SRC_NAMES) / sizeof(*SRC_NAMES) == NUM_SOURCES,
               "a ModSource was added without a name in SRC_NAMES");
