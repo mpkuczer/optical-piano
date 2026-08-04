@@ -657,6 +657,15 @@ void synthUpdate() {
       // would blunt exactly the transient the patch exists for. Gesture.cpp
       // and the filtEnv already provide whatever smoothing it needs.
       oscM[i].amplitude(clampf(mod[DST_FM], 0.0f, 1.0f));
+    } else {
+      // Silenced unconditionally, not just on the way out. Switching preset
+      // does NOT stop the notes already sounding, so a voice struck under an
+      // FM patch can arrive here on the ordinary path the very next update:
+      // oscA comes back at full level while the carrier is still holding
+      // whatever the last FM update left it at — two oscillators where the
+      // gain staging budgeted for one, until that note finally releases.
+      oscF[i].amplitude(0.0f);
+      oscM[i].amplitude(0.0f);
     }
 
     // --- apply: pitch (cents on both) and detune (cents on B only) --------
@@ -750,6 +759,21 @@ void presetDumpRoutes() {
   }
   Serial.println(hasPress ? "#   -> key motion IS routed in this preset"
                           : "#   -> NO position/pressure route: the held key does nothing");
+  // DST_FM is the one destination with a precondition on the preset row, and
+  // therefore the one that can be routed, dumped, and still do absolutely
+  // nothing. This function exists to catch exactly that class of mistake.
+  bool hasFM = false;
+  for (int k = 0; k < q.nRoutes; k++)
+    if (q.routes[k].dest == DST_FM) hasFM = true;
+  if (q.fmRatio > 0.0f) {
+    Serial.print("#   -> FM carrier ON, ratio "); Serial.print(q.fmRatio, 2);
+    if (!hasFM)
+      Serial.print("  (but NO route to fm: index is 0, so it is a plain sine)");
+    Serial.println();
+  } else if (hasFM) {
+    Serial.println("#   -> fm routed but fmRatio is 0: FM is OFF and those "
+                   "routes move nothing");
+  }
   // Worst-case level check, since silent clipping is the least obvious way
   // for a patch to sound wrong.
   // Sum ALL amplitude routes, not just the positive ones. A patch that pulls

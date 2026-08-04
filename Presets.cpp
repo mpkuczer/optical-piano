@@ -11,7 +11,13 @@
 //   fPeak, fBase, fTau, res,
 //   lpMix, bpMix, hpMix,
 //   lfo1{rateHz, shape, delayMs, fadeMs}, lfo2{...}, routes, nRoutes,
-//   drive, verb, delaySend, delayMs, delayFb
+//   drive, verb, delaySend, delayMs, delayFb,
+//   articulation, gesture, fmRatio
+//
+// The last two zero-fill, which is why most rows stop at the articulation:
+// gesture NULL means GESTURE_DEFAULT and fmRatio 0 means no phase modulation.
+// A row that wants FM has to state the gesture too — nullptr — because this is
+// read positionally.
 #include <Audio.h>
 #include "Preset.h"
 
@@ -700,6 +706,103 @@ static const ModRoute R_WURLI[] = {
   { SRC_LFO1,     DST_AMP,     0.22f, SRC_VELOCITY },
 };
 
+// ============================ FM ===========================================
+// The third electric piano, and the first one that is not a subtractive
+// impression of an instrument — it is the same MECHANISM the DX7 used.
+//
+// epiano fakes a tine by gating a second sine two octaves up: the partial is
+// there or it is not, and in between it fades. A real tine does something a
+// gate cannot do, which is CHANGE ITS SPECTRUM CONTINUOUSLY — bright and
+// clangy at the strike, then partial by partial down to something very close
+// to a sine, all while the note is still sounding. One decaying FM index does
+// exactly that, and nothing subtractive does it at all. Hence the pair sitting
+// next to each other in the table: same instrument, two mechanisms, and the
+// difference is audible.
+//
+// Every route here goes to DST_FM, which is unusual and is the point — in an
+// FM patch, brightness IS the index, so the destination that would normally be
+// the filter cutoff is the modulation depth instead. The filter is static.
+//
+// fPeak == fBase, so `fTau` no longer describes a filter sweep at all: nothing
+// moves the cutoff, and the only thing left reading filtEnv is the FM route.
+// It is the INDEX decay time — 300 ms, the tine's own ring — and this is a
+// happy accident of filtEnv being a plain exp(-t/fTau) that does not care what
+// consumes it.
+static const ModRoute R_DXPIANO[] = {
+  VEL_TO_AMP,
+  // THE WHOLE PATCH. Index falls from its peak to nothing over fTau, which is
+  // the timbre sweeping from clang to sine while the note holds. `via
+  // velocity` is what makes it an instrument rather than an effect: hit it
+  // hard for the bark, play softly and the index barely rises, so a quiet note
+  // is very nearly a pure sine. Same touch-is-timbre argument as R_EPIANO,
+  // done at the source instead of downstream of it.
+  { SRC_FILTENV,  DST_FM,   0.55f, SRC_VELOCITY },
+  // A floor, so the sustain is never a bare sine. 0.05 of 600 degrees is about
+  // 0.5 radians — one weak sideband pair either side of the carrier, which
+  // reads as "wire" rather than as a synthesizer's test tone.
+  { SRC_CONST,    DST_FM,   0.05f },
+  // NEGATIVE, and this is the correction phase modulation forces you to make.
+  // PM keeps the index constant across the keyboard by construction (see
+  // Preset.h), so every note gets the same spectrum transposed — the machine
+  // sound the brass patch's keytrack route also exists to break. A real Rhodes
+  // is the opposite of uniform: the bass strings growl and the top two octaves
+  // are nearly pure bell. keytrack is -1..1 from the bottom of the keyboard to
+  // the top, so a negative depth takes index away up there and adds it down
+  // low, which is the direction the instrument actually goes.
+  { SRC_KEYTRACK, DST_FM,  -0.12f },
+  // The gesture, and the reason this is worth building on THIS keyboard rather
+  // than buying a DX7. Leaning into a held key adds partials to a note that is
+  // already sounding — not louder, not filtered, genuinely more harmonics —
+  // which no electric piano can do and no filter sweep sounds like. x^3 keeps
+  // it out of the way until you commit.
+  { SRC_POSITION, DST_FM,   0.30f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  { SRC_LFO1,     DST_AMP,  0.12f, SRC_VELOCITY },
+  // Tape wow. LFO2 rather than LFO1 because the tremolo above is at 5.6 Hz and
+  // this wants to be an order of magnitude slower — a warble sharing the
+  // tremolo's rate stops reading as a sagging motor and starts reading as one
+  // deeper vibrato. 4 cents is under a twentieth of a semitone: too small to
+  // hear as a pitch and just enough to stop the sustain sitting perfectly
+  // still, which is the tell that a held FM note is a machine.
+  //
+  // No `via`, so it is there on every note including the softest. That is the
+  // point — a warped capstan does not care how hard you played.
+  { SRC_LFO2,     DST_PITCH, 4.0f },
+};
+
+// INHARMONIC, and the cleanest demonstration of what the ratio does. 2.76 is
+// the free-free bar's second mode, the same number glock is chasing — but
+// glock could only APPROXIMATE it, because its partial is an actual oscillator
+// playing an actual note and semitones are all it has. 17 semitones (2.670x)
+// was as close as that gets, and even then the choice was constrained by what
+// interval the ratio spelled: 18 was arithmetically closer and unusable
+// because an octave plus a tritone is a sound you cannot unhear.
+//
+// Here the ratio is a float and the modulator is NEVER HEARD — it only exists
+// as sidebands at carrier +- n*2.76, none of which is the modulator's own
+// frequency. So the interval argument evaporates entirely, and the number can
+// just be right. That is the difference between imitating inharmonicity and
+// generating it.
+//
+// A bell also wants a long, quiet tail under a short clang, which is the same
+// two-decay-rates problem epiano solves with a gated oscillator — solved here
+// by the index decaying twenty times faster than the amplitude.
+static const ModRoute R_FMBELL[] = {
+  VEL_TO_AMP,
+  { SRC_FILTENV,  DST_FM,     0.45f, SRC_VELOCITY },   // the strike
+  { SRC_CONST,    DST_FM,     0.08f },                 // the ring
+  // Fixed for the life of the note, so no two strikes have quite the same
+  // spectrum. On a harmonic patch SRC_RANDOM goes to detune and you hear it as
+  // drift; there is no second oscillator to detune here, and a bell's
+  // note-to-note variation is in its overtones anyway.
+  { SRC_RANDOM,   DST_FM,     0.03f },
+  { SRC_POSITION, DST_FM,     0.25f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  // The one route that is not FM. Sidebands land wherever the ratio puts them,
+  // including above Nyquist on the top octave, where they fold back down as
+  // grit; pinning some of the brightness to an absolute frequency keeps the
+  // high notes from reaching for partials this sample rate cannot hold.
+  { SRC_KEYTRACK, DST_CUTOFF, -4.0f },
+};
+
 // ---- the table -----------------------------------------------------------
 // WAVEFORM_BANDLIMIT_*, not the plain names. AudioSynthWaveform's ordinary
 // SAWTOOTH, SQUARE and PULSE are generated naively — a raw ramp or a raw step
@@ -1004,6 +1107,51 @@ const Preset PRESET[] = {
     1.00, 0.00, 0.00,
     { 5.4f, LFO_SINE, 0.0f, 200.0f }, LFO_OFF, NROUTES(R_WURLI),
     0.10, 0.30, 0.00,   0,   0.00,   ART_STRUCK },
+
+// ============================ FM ===========================================
+// Deliberately alongside epiano and wurli, because the comparison is the whole
+// point — 'n' and 'p' between the three of them is the demonstration.
+//
+//   mixB 0.00, cents 0.0, semiB 0   oscB is not merely quiet, it is UNUSED.
+//                          Everything you hear is one carrier. epiano needs a
+//                          second oscillator for its bell; this makes the same
+//                          bell out of the first one's own sidebands.
+//   waveA SINE             stated for honesty and ignored: synthNoteOn begins
+//                          the carrier as a sine unconditionally, because a
+//                          phase-modulated saw is mud rather than timbre — the
+//                          sidebands multiply against harmonics that are
+//                          already there.
+//   fPeak == fBase 16.0    open and STATIC. Nothing sweeps the filter; a
+//                          patch whose brightness comes from the index does
+//                          not want a second brightness control fighting it.
+//                          The lowpass is here to catch folded sidebands.
+//   res 0.70               flat. A resonant peak is a formant, and FM's
+//                          spectrum is already fully specified.
+//   fTau 300               NOT a filter time here — the index decay. See
+//                          R_DXPIANO.
+{ "dxpiano", WAVEFORM_SINE,     WAVEFORM_SINE,       0,  0.0, 0.00,
+     2,  1600,  420, 0.90,   16.0, 16.0,  300, 0.70,
+    1.00, 0.00, 0.00,
+    { 5.6f, LFO_SINE, 0.0f, 250.0f },
+    // LFO2 is the wow: 0.9 Hz, delayed past the strike and faded in over 700 ms
+    // so the attack lands dead in tune and only the sustain drifts. Starting it
+    // at note-on would bend the transient, which is the one part of an electric
+    // piano the ear checks against its memory of the real thing.
+    { 0.9f, LFO_SINE, 300.0f, 700.0f }, NROUTES(R_DXPIANO),
+    0.00, 0.32, 0.00,   0,   0.00,   ART_STRUCK, nullptr, 1.0f },
+
+// fmRatio 2.76 against dxpiano's 1.0, and that single field is the entire
+// difference between the two patches' character. Everything else here is
+// serving the LENGTH rather than the colour: tau 2400 against 1600, r 700
+// against 420, verb 0.46 against 0.32. A bell is a bar that nobody damped.
+//
+// No LFO of any kind. Tremolo is a pickup and an amplifier, and this is
+// neither.
+{ "fmbell",  WAVEFORM_SINE,     WAVEFORM_SINE,       0,  0.0, 0.00,
+     1,  2400,  700, 0.85,   12.0, 12.0,  400, 0.70,
+    1.00, 0.00, 0.00,
+    LFO_OFF, LFO_OFF, NROUTES(R_FMBELL),
+    0.00, 0.46, 0.00,   0,   0.00,   ART_STRUCK, nullptr, 2.76f },
 
 // ============================ DIAGNOSTIC ===================================
 { "presstest", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH, 0,  6.0, 1.00,

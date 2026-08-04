@@ -1,0 +1,836 @@
+s20 ON  v=0.54
+s19 ON  v=0.51
+s19 OFF rel=0.88  travel=3201
+s20 OFF rel=0.94  travel=2888
+s20 ON  v=0.61
+s19 ON  v=0.53
+s19 OFF rel=1.00  travel=2918
+s20 OFF rel=1.00  travel=2356
+s14 ON  v=0.62
+s14 OFF rel=0.68  travel=2637
+# preset 1: flutepr
+# preset 0: flute
+# preset 29: blocky
+# preset 28: presstest
+# preset 27: fmbell
+# preset 26: dxpiano
+s14 ON  v=0.60
+s14 OFF rel=1.00  travel=1950
+# preset 25: wurli
+# preset 24: epiano
+# preset 25: wurli
+# preset 26: dxpiano
+s14 ON  v=0.65
+s14 OFF rel=1.00  travel=1818
+s20 ON  v=0.62
+s19 ON  v=0.59
+s19 OFF rel=1.00  travel=2910
+s20 OFF rel=1.00  travel=2354
+s20 ON  v=0.64
+s19 ON  v=0.61
+s19 OFF rel=1.00  travel=2891
+s20 OFF rel=1.00  travel=2349
+s21 ON  v=0.66
+s21 OFF rel=1.00  travel=2756
+s25 ON  v=0.58
+s25 OFF rel=1.00  travel=2512
+s21 ON  v=0.58
+s14 ON  v=0.50
+s21 OFF rel=1.00  travel=2803
+s14 OFF rel=1.00  travel=1929
+s14 ON  v=0.43
+s11 ON  v=0.60
+s14 OFF rel=1.00  travel=1930
+s11 OFF rel=1.00  travel=2755
+s11 ON  v=0.65
+s7 ON  v=0.56
+s14 ON  v=0.45
+s11 OFF rel=1.00  travel=2783
+s7 OFF rel=1.00  travel=2469
+s14 OFF rel=1.00  travel=1818
+s6 ON  v=0.51
+s9 ON  v=0.60
+s14 ON  v=0.58
+s9 OFF rel=1.00  travel=3100
+s14 OFF rel=1.00  travel=1968
+s6 OFF rel=1.00  travel=3750
+s5 ON  v=0.49
+s6 ON  v=0.48
+s9 ON  v=0.56
+s14 ON  v=0.47
+s18 ON  v=0.57
+s5 OFF rel=0.55  travel=2703
+s14 OFF rel=1.00  travel=1970
+s9 OFF rel=1.00  travel=3102
+s6 OFF rel=1.00  travel=3717
+s18 OFF rel=1.00  travel=2540
+s18 ON  v=0.47
+s6 ON  v=0.59
+s9 ON  v=0.57
+s14 ON  v=0.45
+s14 OFF rel=1.00  travel=3198
+s9 OFF rel=1.00  travel=3528
+s6 OFF rel=1.00  travel=3750
+s18 OFF rel=1.00  travel=3567
+s18 ON  v=0.53
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=3194
+s18 OFF rel=0.49  travel=3565
+s18 ON  v=0.62
+s14 ON  v=0.56
+s14 OFF rel=1.00  travel=3184
+s18 OFF rel=1.00  travel=3571
+s20 ON  v=0.27
+s14 ON  v=0.53
+s14 OFF rel=1.00  travel=3178
+s20 OFF rel=1.00  travel=3464
+s20 ON  v=0.11
+s14 ON  v=0.50
+s14 OFF rel=0.70  travel=3186
+s20 OFF rel=0.78  travel=3464
+s20 ON  v=0.00
+s14 ON  v=0.54
+s14 OFF rel=1.00  travel=3191
+s13 ON  v=0.43
+s21 ON  v=0.57
+s20 OFF rel=1.00  travel=3484
+s21 OFF rel=1.00  travel=2884
+s13 OFF rel=1.00  travel=2987
+s13 ON  v=0.45
+s17 ON  v=0.02
+s18 ON  v=0.48
+s21 ON  v=0.59
+s17 OFF rel=1.00  travel=2949
+s21 OFF rel=1.00  travel=2886
+s13 OFF rel=1.00  travel=2610
+s18 OFF rel=0.62  travel=3550
+s13 ON  v=0.27
+s20 ON  v=0.10
+s17 ON  v=0.00
+s13 OFF rel=1.00  travel=2551
+s17 OFF rel=1.00  travel=3455
+s13 ON  v=0.23
+s18 ON  v=0.48
+s6 ON  v=0.58
+s21 ON  v=0.53
+s20 OFF rel=0.81  travel=3484
+s6 OFF rel=1.00  travel=3688
+s18 OFF rel=1.00  travel=3227
+s13 OFF rel=1.00  travel=2512
+s21 OFF rel=1.00  travel=2751
+s13 ON  v=0.00
+s6 ON  v=0.07
+s21 ON  v=0.28
+s18 ON  v=0.25
+s9 ON  v=0.42
+s6 OFF rel=1.00  travel=3363
+s9 OFF rel=1.00  travel=3528
+s13 OFF rel=1.00  travel=2416
+s18 OFF rel=1.00  travel=2949
+s21 OFF rel=1.00  travel=2579
+s21 ON  v=0.61
+s6 ON  v=0.60
+s9 ON  v=0.65
+s13 ON  v=0.45
+s18 ON  v=0.48
+s18 OFF rel=1.00  travel=3562
+s9 OFF rel=1.00  travel=3528
+s13 OFF rel=1.00  travel=3045
+s6 OFF rel=1.00  travel=3689
+s21 OFF rel=1.00  travel=3330
+s14 ON  v=0.13
+s14 OFF rel=0.92  travel=3369
+s13 ON  v=0.22
+s9 ON  v=0.53
+s13 OFF rel=1.00  travel=3011
+s9 OFF rel=1.00  travel=3529
+s7 ON  v=0.48
+s8 ON  v=0.56
+s8 OFF rel=1.00  travel=2981
+s7 OFF rel=1.00  travel=2466
+s8 ON  v=0.50
+s7 ON  v=0.41
+s7 OFF rel=1.00  travel=2270
+s8 OFF rel=1.00  travel=1922
+s9 ON  v=0.56
+s9 OFF rel=1.00  travel=3238
+s8 ON  v=0.55
+s8 OFF rel=1.00  travel=2035
+s7 ON  v=0.38
+s7 OFF rel=1.00  travel=2101
+s6 ON  v=0.62
+s6 OFF rel=0.97  travel=3714
+s6 ON  v=0.61
+s6 OFF rel=1.00  travel=3660
+s7 ON  v=0.55
+s7 OFF rel=1.00  travel=1964
+s8 ON  v=0.70
+s8 OFF rel=1.00  travel=2882
+s9 ON  v=0.55
+s9 OFF rel=1.00  travel=2969
+s8 ON  v=0.73
+s8 OFF rel=1.00  travel=3015
+s7 ON  v=0.67
+s7 OFF rel=1.00  travel=2294
+s6 ON  v=0.62
+s6 OFF rel=1.00  travel=3667
+s7 ON  v=0.39
+s7 OFF rel=1.00  travel=2293
+s8 ON  v=0.67
+s8 OFF rel=1.00  travel=3021
+s9 ON  v=0.60
+s9 OFF rel=1.00  travel=2714
+s10 ON  v=0.62
+s10 OFF rel=1.00  travel=2861
+s9 ON  v=0.36
+s9 OFF rel=1.00  travel=2593
+s8 ON  v=0.60
+s8 OFF rel=1.00  travel=3022
+s7 ON  v=0.64
+s7 OFF rel=1.00  travel=1963
+s6 ON  v=0.62
+s6 OFF rel=1.00  travel=3253
+s7 ON  v=0.57
+s7 OFF rel=1.00  travel=1939
+s8 ON  v=0.57
+s8 OFF rel=1.00  travel=2881
+s9 ON  v=0.60
+s9 OFF rel=1.00  travel=2480
+s10 ON  v=0.61
+s10 OFF rel=1.00  travel=2964
+s9 ON  v=0.43
+s9 OFF rel=1.00  travel=2479
+s8 ON  v=0.61
+s8 OFF rel=1.00  travel=2591
+s7 ON  v=0.67
+s7 OFF rel=1.00  travel=1976
+s6 ON  v=0.67
+s6 OFF rel=1.00  travel=3012
+s9 ON  v=0.57
+s9 OFF rel=1.00  travel=2327
+s7 ON  v=0.65
+s7 OFF rel=1.00  travel=1975
+s8 ON  v=0.61
+s8 OFF rel=1.00  travel=2497
+s7 ON  v=0.51
+s7 OFF rel=1.00  travel=1931
+s9 ON  v=0.52
+s9 OFF rel=1.00  travel=2283
+s10 ON  v=0.62
+s10 OFF rel=1.00  travel=2935
+s11 ON  v=0.70
+s11 OFF rel=1.00  travel=2779
+s10 ON  v=0.63
+s10 OFF rel=1.00  travel=2963
+s9 ON  v=0.65
+s9 OFF rel=1.00  travel=2574
+s7 ON  v=0.62
+s8 ON  v=0.66
+s8 OFF rel=1.00  travel=2406
+s7 OFF rel=1.00  travel=2883
+s11 ON  v=0.64
+s11 OFF rel=1.00  travel=2772
+s7 ON  v=0.56
+s7 OFF rel=1.00  travel=2879
+s11 ON  v=0.53
+s11 OFF rel=1.00  travel=2767
+s11 ON  v=0.63
+s11 OFF rel=1.00  travel=2537
+s9 ON  v=0.52
+s9 OFF rel=1.00  travel=2572
+s11 ON  v=0.64
+s11 OFF rel=1.00  travel=2352
+s9 ON  v=0.67
+s9 OFF rel=1.00  travel=2713
+s10 ON  v=0.53
+s10 OFF rel=1.00  travel=2950
+s8 ON  v=0.67
+s8 OFF rel=1.00  travel=2744
+s7 ON  v=0.67
+s7 OFF rel=1.00  travel=2608
+s6 ON  v=0.64
+s6 OFF rel=1.00  travel=3293
+s9 ON  v=0.40
+s9 OFF rel=1.00  travel=2714
+s12 ON  v=0.56
+s12 OFF rel=0.94  travel=2822
+s13 ON  v=0.50
+s13 OFF rel=1.00  travel=2734
+s14 ON  v=0.56
+s14 OFF rel=1.00  travel=3081
+s15 ON  v=0.57
+s15 OFF rel=1.00  travel=2688
+s16 ON  v=0.34
+s16 OFF rel=1.00  travel=2630
+s16 ON  v=0.33
+s16 OFF rel=1.00  travel=1243
+s17 ON  v=0.48
+s17 OFF rel=1.00  travel=3457
+s14 ON  v=0.37
+s14 OFF rel=0.91  travel=2714
+s16 ON  v=0.76
+s16 OFF rel=1.00  travel=1512
+s15 ON  v=0.56
+s15 OFF rel=1.00  travel=1806
+s13 ON  v=0.60
+s13 OFF rel=1.00  travel=2428
+s17 ON  v=0.42
+s17 OFF rel=1.00  travel=3155
+s14 ON  v=0.03
+s14 OFF rel=1.00  travel=2353
+s16 ON  v=0.61
+s16 OFF rel=1.00  travel=1812
+s15 ON  v=0.49
+s15 OFF rel=1.00  travel=1725
+s17 ON  v=0.49
+s17 OFF rel=1.00  travel=3063
+s18 ON  v=0.58
+s18 OFF rel=1.00  travel=3539
+s19 ON  v=0.56
+s19 OFF rel=1.00  travel=2849
+s20 ON  v=0.04
+s20 OFF rel=1.00  travel=3104
+s21 ON  v=0.59
+s21 OFF rel=1.00  travel=3404
+s22 ON  v=0.57
+s22 OFF rel=1.00  travel=2443
+s23 ON  v=0.62
+s23 OFF rel=1.00  travel=2455
+s24 ON  v=0.48
+s24 OFF rel=1.00  travel=2403
+s25 ON  v=0.57
+s25 OFF rel=1.00  travel=2508
+s1 ON  v=0.63
+s1 OFF rel=1.00  travel=2348
+s2 ON  v=0.59
+s2 OFF rel=1.00  travel=2330
+s3 ON  v=0.56
+s4 ON  v=0.44
+s3 OFF rel=0.46  travel=2299
+s4 OFF rel=1.00  travel=2267
+s5 ON  v=0.60
+s5 OFF rel=1.00  travel=2250
+s5 ON  v=0.55
+s6 ON  v=0.57
+s6 OFF rel=1.00  travel=3249
+s5 OFF rel=1.00  travel=2250
+s7 ON  v=0.60
+s7 OFF rel=1.00  travel=2516
+s8 ON  v=0.58
+s8 OFF rel=1.00  travel=2752
+s9 ON  v=0.53
+s9 OFF rel=1.00  travel=2465
+s10 ON  v=0.62
+s10 OFF rel=1.00  travel=2669
+s11 ON  v=0.64
+s11 OFF rel=1.00  travel=2179
+s12 ON  v=0.66
+s12 OFF rel=1.00  travel=2022
+s13 ON  v=0.52
+s13 OFF rel=1.00  travel=2209
+s16 ON  v=0.56
+s16 OFF rel=1.00  travel=1801
+s14 ON  v=0.00
+s14 OFF rel=1.00  travel=2101
+s15 ON  v=0.43
+s15 OFF rel=1.00  travel=1544
+s17 ON  v=0.61
+s17 OFF rel=1.00  travel=3065
+s17 ON  v=0.23
+s18 ON  v=0.56
+s17 OFF rel=1.00  travel=2976
+s18 OFF rel=1.00  travel=3362
+s19 ON  v=0.55
+s19 OFF rel=1.00  travel=2613
+s20 ON  v=0.53
+s20 OFF rel=1.00  travel=2881
+s21 ON  v=0.63
+s21 OFF rel=1.00  travel=3055
+s22 ON  v=0.52
+s22 OFF rel=1.00  travel=1636
+s22 ON  v=0.51
+s23 ON  v=0.49
+s22 OFF rel=1.00  travel=1582
+s23 OFF rel=1.00  travel=2457
+s25 ON  v=0.46
+s25 OFF rel=1.00  travel=2442
+s24 ON  v=0.55
+s24 OFF rel=1.00  travel=1330
+s24 ON  v=0.54
+s14 ON  v=0.05
+s25 ON  v=0.38
+s25 OFF rel=0.76  travel=2180
+s14 OFF rel=1.00  travel=1961
+s24 OFF rel=1.00  travel=1352
+s24 ON  v=0.20
+s14 ON  v=0.10
+s14 OFF rel=1.00  travel=2048
+s24 OFF rel=1.00  travel=1499
+s13 ON  v=0.34
+s13 OFF rel=1.00  travel=2092
+s16 ON  v=0.59
+s11 ON  v=0.63
+s14 ON  v=0.48
+s16 OFF rel=1.00  travel=1798
+s11 OFF rel=1.00  travel=3140
+s13 ON  v=0.27
+s9 ON  v=0.62
+s14 OFF rel=1.00  travel=2262
+s9 OFF rel=1.00  travel=3335
+s13 OFF rel=1.00  travel=2267
+s11 ON  v=0.62
+s7 ON  v=0.57
+s7 OFF rel=0.79  travel=2677
+s10 ON  v=0.41
+s11 OFF rel=1.00  travel=3138
+s6 ON  v=0.56
+s6 OFF rel=1.00  travel=3561
+s10 OFF rel=1.00  travel=3603
+s9 ON  v=0.63
+s9 OFF rel=1.00  travel=3301
+s11 ON  v=0.61
+s7 ON  v=0.07
+s11 OFF rel=0.26  travel=3634
+s7 OFF rel=0.61  travel=3845
+s10 ON  v=0.50
+s6 ON  v=0.46
+s10 OFF rel=1.00  travel=3588
+s6 OFF rel=0.86  travel=3606
+s19 ON  v=0.43
+s19 OFF rel=1.00  travel=2318
+s19 ON  v=0.01
+s19 OFF rel=1.00  travel=2219
+s19 ON  v=0.35
+s19 OFF rel=1.00  travel=2057
+s16 ON  v=0.48
+s21 ON  v=0.08
+s23 ON  v=0.53
+s21 OFF rel=1.00  travel=2756
+s23 OFF rel=1.00  travel=2223
+s25 ON  v=0.59
+s23 ON  v=0.55
+s25 OFF rel=0.26  travel=2576
+s16 OFF rel=1.00  travel=2463
+s14 ON  v=0.30
+s21 ON  v=0.57
+s23 OFF rel=1.00  travel=2544
+s21 OFF rel=1.00  travel=3187
+s14 OFF rel=1.00  travel=2271
+s14 ON  v=0.44
+s18 ON  v=0.30
+s21 ON  v=0.43
+s21 OFF rel=1.00  travel=3186
+s14 OFF rel=1.00  travel=2270
+s18 OFF rel=1.00  travel=2977
+s21 ON  v=0.60
+s18 ON  v=0.50
+s14 ON  v=0.00
+s12 ON  v=0.52
+s21 OFF rel=1.00  travel=2853
+s14 OFF rel=1.00  travel=2464
+s19 ON  v=0.57
+s16 ON  v=0.46
+s20 ON  v=0.49
+s18 OFF rel=1.00  travel=3481
+s16 OFF rel=1.00  travel=2495
+s20 OFF rel=1.00  travel=2513
+s12 OFF rel=1.00  travel=2456
+s19 OFF rel=1.00  travel=2083
+s21 ON  v=0.63
+s18 ON  v=0.33
+s14 ON  v=0.43
+s14 OFF rel=1.00  travel=2465
+s21 OFF rel=1.00  travel=2851
+s18 OFF rel=1.00  travel=3482
+s12 ON  v=0.14
+s19 ON  v=0.83
+s20 ON  v=0.55
+s16 ON  v=0.36
+s16 OFF rel=1.00  travel=2378
+s20 OFF rel=1.00  travel=2388
+s12 OFF rel=1.00  travel=2439
+s19 OFF rel=1.00  travel=2105
+s12 ON  v=0.37
+s12 OFF rel=1.00  travel=2367
+s12 ON  v=0.56
+s16 ON  v=0.55
+s19 ON  v=0.62
+s20 ON  v=0.44
+s20 OFF rel=1.00  travel=2238
+s19 OFF rel=1.00  travel=2021
+s16 OFF rel=1.00  travel=2109
+s12 OFF rel=1.00  travel=2191
+s12 ON  v=0.42
+s19 ON  v=0.09
+s16 ON  v=0.39
+s12 OFF rel=1.00  travel=2296
+s19 OFF rel=1.00  travel=1890
+s16 OFF rel=1.00  travel=1911
+s17 ON  v=0.45
+s12 ON  v=0.25
+s9 ON  v=0.42
+s9 OFF rel=1.00  travel=3087
+s12 OFF rel=1.00  travel=2294
+s17 OFF rel=1.00  travel=2569
+s19 ON  v=0.36
+s19 OFF rel=1.00  travel=1901
+s9 ON  v=0.56
+s14 ON  v=0.48
+s18 ON  v=0.34
+s6 ON  v=0.47
+s21 ON  v=0.50
+s18 OFF rel=1.00  travel=3488
+s21 OFF rel=1.00  travel=2756
+s25 ON  v=0.30
+s14 OFF rel=1.00  travel=2259
+s9 OFF rel=1.00  travel=2949
+s6 OFF rel=1.00  travel=3559
+s24 ON  v=0.00
+s14 ON  v=0.49
+s18 ON  v=0.30
+s25 OFF rel=0.20  travel=2763
+s18 OFF rel=1.00  travel=3128
+s13 ON  v=0.26
+s25 ON  v=0.42
+s17 ON  v=0.48
+s24 OFF rel=1.00  travel=1577
+s14 OFF rel=1.00  travel=2119
+s23 ON  v=0.48
+s25 OFF rel=1.00  travel=2759
+s13 OFF rel=1.00  travel=2246
+s17 OFF rel=1.00  travel=3597
+s6 ON  v=0.56
+s13 ON  v=0.44
+s18 ON  v=0.33
+s22 ON  v=0.17
+s23 OFF rel=1.00  travel=2764
+s16 ON  v=0.76
+s13 OFF rel=0.70  travel=2218
+s15 ON  v=0.02
+s18 OFF rel=1.00  travel=3047
+s22 OFF rel=1.00  travel=2447
+s16 OFF rel=1.00  travel=1987
+s6 OFF rel=1.00  travel=3628
+s15 OFF rel=0.81  travel=2490
+s14 ON  v=0.00
+s13 ON  v=0.26
+s14 OFF rel=1.00  travel=2163
+s9 ON  v=0.43
+s13 OFF rel=1.00  travel=2200
+s8 ON  v=0.31
+s9 OFF rel=1.00  travel=2952
+s11 ON  v=0.44
+s8 OFF rel=1.00  travel=2809
+s11 OFF rel=1.00  travel=3650
+s7 ON  v=0.17
+s7 OFF rel=0.82  travel=3715
+s13 ON  v=0.49
+s7 ON  v=0.39
+s13 OFF rel=1.00  travel=2190
+s16 ON  v=0.26
+s7 OFF rel=1.00  travel=3187
+s7 ON  v=0.46
+s16 OFF rel=1.00  travel=1985
+s19 ON  v=0.13
+s19 OFF rel=1.00  travel=2030
+s7 OFF rel=0.72  travel=2792
+s19 ON  v=0.92
+s7 ON  v=0.39
+s7 OFF rel=1.00  travel=2526
+s19 OFF rel=1.00  travel=2025
+s7 ON  v=0.52
+s19 ON  v=0.35
+s7 OFF rel=1.00  travel=2281
+s19 OFF rel=1.00  travel=1859
+# preset 27: fmbell
+s7 ON  v=0.56
+s19 ON  v=0.09
+s19 OFF rel=1.00  travel=2601
+s7 OFF rel=1.00  travel=2609
+# preset 28: presstest
+# preset 29: blocky
+# preset 0: flute
+# preset 29: blocky
+# preset 28: presstest
+# preset 27: fmbell
+# preset 26: dxpiano
+# preset 25: wurli
+# preset 24: epiano
+# preset 23: brass
+# preset 22: strbow
+# preset 21: strings
+# preset 20: bowed
+# preset 19: reed
+# preset 18: drawbar
+# preset 17: chordtune
+# preset 16: glock
+s19 ON  v=0.07
+s19 OFF rel=1.00  travel=2989
+s19 ON  v=0.17
+s19 OFF rel=1.00  travel=3315
+s14 ON  v=0.29
+s14 OFF rel=1.00  travel=3392
+s11 ON  v=0.62
+s11 OFF rel=1.00  travel=3543
+s9 ON  v=0.66
+s9 OFF rel=1.00  travel=3303
+s9 ON  v=0.68
+s9 OFF rel=1.00  travel=3512
+s7 ON  v=0.62
+s7 OFF rel=1.00  travel=3661
+s19 ON  v=0.11
+s19 OFF rel=1.00  travel=3315
+s19 ON  v=0.41
+s19 OFF rel=1.00  travel=3158
+s19 ON  v=0.13
+s19 OFF rel=1.00  travel=3035
+s16 ON  v=0.12
+s16 OFF rel=1.00  travel=2092
+s16 ON  v=0.26
+s16 OFF rel=1.00  travel=3657
+s14 ON  v=0.00
+s14 OFF rel=1.00  travel=3392
+s11 ON  v=0.45
+s11 OFF rel=1.00  travel=3555
+s7 ON  v=0.61
+s7 OFF rel=1.00  travel=3643
+s21 ON  v=0.61
+s11 ON  v=0.58
+s7 ON  v=0.53
+s14 ON  v=0.00
+s14 OFF rel=0.82  travel=3384
+s7 OFF rel=1.00  travel=3379
+s11 OFF rel=0.55  travel=3416
+s21 OFF rel=0.97  travel=2639
+s11 ON  v=0.53
+s7 ON  v=0.52
+s19 ON  v=0.05
+s14 ON  v=0.03
+s14 OFF rel=1.00  travel=2988
+s7 OFF rel=1.00  travel=3129
+s11 OFF rel=1.00  travel=3249
+s19 OFF rel=1.00  travel=2646
+s19 ON  v=0.09
+s14 ON  v=0.09
+s11 ON  v=0.48
+s23 ON  v=0.52
+s7 ON  v=0.42
+s23 OFF rel=1.00  travel=2780
+s19 OFF rel=1.00  travel=2470
+s7 OFF rel=1.00  travel=2945
+s14 OFF rel=1.00  travel=2739
+s11 OFF rel=1.00  travel=3167
+# preset 17: chordtune
+# preset 18: drawbar
+# preset 19: reed
+s14 ON  v=0.50
+s14 OFF rel=0.89  travel=2567
+s9 ON  v=0.50
+s9 OFF rel=1.00  travel=3512
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=3056
+s7 ON  v=0.50
+s6 ON  v=0.50
+s7 OFF rel=1.00  travel=2823
+s9 ON  v=0.50
+s6 OFF rel=0.55  travel=3671
+s9 OFF rel=1.00  travel=3378
+s4 ON  v=0.50
+s4 OFF rel=0.44  travel=1405
+s4 ON  v=0.50
+s4 OFF rel=0.64  travel=1378
+s2 ON  v=0.50
+s9 ON  v=0.50
+s2 OFF rel=0.92  travel=1603
+s9 OFF rel=1.00  travel=3276
+s19 ON  v=0.50
+s9 ON  v=0.50
+s19 OFF rel=0.20  travel=2130
+s9 OFF rel=0.57  travel=3191
+s24 ON  v=0.50
+s19 ON  v=0.50
+s11 ON  v=0.50
+s14 ON  v=0.50
+s14 OFF rel=0.81  travel=2454
+s14 ON  v=0.50
+s24 OFF rel=0.01  travel=1287
+s14 OFF rel=1.00  travel=2114
+s11 OFF rel=1.00  travel=2792
+s19 OFF rel=1.00  travel=1833
+s23 ON  v=0.50
+s14 ON  v=0.50
+s14 OFF rel=0.15  travel=1806
+s23 OFF rel=1.00  travel=2850
+s21 ON  v=0.50
+s21 OFF rel=0.76  travel=2489
+s19 ON  v=0.50
+s19 OFF rel=1.00  travel=1701
+s16 ON  v=0.50
+s16 OFF rel=0.80  travel=3515
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=1804
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=2595
+s9 ON  v=0.50
+s19 ON  v=0.50
+s9 OFF rel=1.00  travel=2592
+s19 OFF rel=1.00  travel=1570
+# preset 20: bowed
+s16 ON  v=0.50
+s16 OFF rel=0.45  travel=3451
+s16 ON  v=0.50
+s16 OFF rel=1.00  travel=3448
+# preset 21: strings
+# preset 22: strbow
+s16 ON  v=0.50
+s16 OFF rel=1.00  travel=3104
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=1551
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=2311
+s9 ON  v=0.50
+s9 OFF rel=1.00  travel=2803
+s7 ON  v=0.50
+s7 OFF rel=1.00  travel=2757
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=2128
+s11 ON  v=0.50
+s14 ON  v=0.50
+s7 ON  v=0.50
+s11 OFF rel=1.00  travel=2078
+s7 OFF rel=0.68  travel=2404
+s14 OFF rel=1.00  travel=1451
+s11 ON  v=0.50
+s14 ON  v=0.50
+s7 ON  v=0.50
+s14 OFF rel=1.00  travel=1355
+s11 OFF rel=1.00  travel=2002
+s7 OFF rel=0.47  travel=2025
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=1928
+s19 ON  v=0.50
+s19 OFF rel=1.00  travel=1552
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=1267
+s23 ON  v=0.50
+s19 ON  v=0.50
+s16 ON  v=0.50
+s19 OFF rel=1.00  travel=1656
+s23 OFF rel=0.93  travel=2864
+s16 OFF rel=1.00  travel=3088
+s14 ON  v=0.50
+s21 ON  v=0.50
+s21 OFF rel=0.91  travel=2138
+s14 OFF rel=0.19  travel=1190
+s23 ON  v=0.50
+s23 OFF rel=1.00  travel=2645
+s19 ON  v=0.50
+s19 OFF rel=1.00  travel=1656
+s25 ON  v=0.50
+s25 OFF rel=1.00  travel=2704
+# preset 23: brass
+# preset 24: epiano
+s19 ON  v=0.16
+s25 ON  v=0.11
+s19 OFF rel=1.00  travel=2489
+s25 OFF rel=1.00  travel=2751
+s25 ON  v=0.24
+s23 ON  v=0.58
+s16 ON  v=0.44
+s25 OFF rel=1.00  travel=2751
+s23 OFF rel=1.00  travel=2363
+s16 OFF rel=1.00  travel=2854
+# preset 25: wurli
+# preset 26: dxpiano
+s21 ON  v=0.55
+s21 OFF rel=1.00  travel=2080
+s25 ON  v=0.48
+s16 ON  v=0.45
+s23 ON  v=0.51
+s25 OFF rel=1.00  travel=2767
+s23 OFF rel=1.00  travel=2730
+s16 OFF rel=1.00  travel=2578
+s23 ON  v=0.54
+s23 OFF rel=0.56  travel=3047
+s21 ON  v=0.85
+s21 OFF rel=1.00  travel=2002
+s19 ON  v=0.40
+s19 OFF rel=1.00  travel=2511
+s10 ON  v=0.43
+s6 ON  v=0.24
+s13 ON  v=0.47
+s13 OFF rel=1.00  travel=2006
+s10 OFF rel=1.00  travel=3440
+s6 OFF rel=0.90  travel=3129
+s10 ON  v=0.51
+s13 ON  v=0.53
+s18 ON  v=0.58
+s18 OFF rel=1.00  travel=2908
+s13 OFF rel=1.00  travel=2116
+s10 OFF rel=1.00  travel=3215
+s13 ON  v=0.46
+s10 ON  v=0.46
+s18 ON  v=0.50
+s10 OFF rel=1.00  travel=3105
+s13 OFF rel=0.63  travel=2117
+s17 ON  v=0.03
+s8 ON  v=0.53
+s13 ON  v=0.47
+s11 ON  v=0.58
+s18 OFF rel=1.00  travel=2697
+s13 OFF rel=1.00  travel=2017
+s8 OFF rel=1.00  travel=2809
+s11 OFF rel=1.00  travel=2595
+s17 OFF rel=1.00  travel=3559
+s13 ON  v=0.33
+s19 ON  v=0.23
+s9 ON  v=0.53
+s13 OFF rel=0.60  travel=2137
+s9 OFF rel=1.00  travel=3093
+s12 ON  v=0.26
+s20 ON  v=0.37
+s8 ON  v=0.48
+s19 OFF rel=1.00  travel=2274
+s18 ON  v=0.45
+s20 OFF rel=0.90  travel=2173
+s12 OFF rel=1.00  travel=2403
+s8 OFF rel=1.00  travel=3160
+s18 OFF rel=1.00  travel=3554
+s16 ON  v=0.40
+s15 ON  v=0.35
+s12 ON  v=0.39
+s8 ON  v=0.28
+s16 OFF rel=1.00  travel=2562
+s12 OFF rel=0.20  travel=2412
+s12 ON  v=0.13
+s12 OFF rel=0.83  travel=3648
+s8 OFF rel=0.88  travel=3556
+s8 ON  v=0.28
+s12 ON  v=0.22
+s12 OFF rel=1.00  travel=3645
+s8 OFF rel=1.00  travel=3552
+s15 OFF rel=1.00  travel=3626
+s8 ON  v=0.26
+s12 ON  v=0.18
+s15 ON  v=0.07
+s8 OFF rel=1.00  travel=3438
+s12 OFF rel=1.00  travel=3643
+s15 OFF rel=0.57  travel=3623
+s8 ON  v=0.36
+s12 ON  v=0.33
+s15 ON  v=0.20
+s15 OFF rel=1.00  travel=3618
+s12 OFF rel=1.00  travel=3640
+s8 OFF rel=1.00  travel=3551
+s8 ON  v=0.31
+s12 ON  v=0.33
+s15 ON  v=0.42
+s15 OFF rel=1.00  travel=3618
+s8 OFF rel=1.00  travel=3552
+s12 OFF rel=0.94  travel=3639
+s19 ON  v=0.00
+s19 OFF rel=1.00  travel=3227
+s16 ON  v=0.52
+s16 OFF rel=1.00  travel=2300
+s16 ON  v=0.41
+s16 OFF rel=0.32  travel=3551

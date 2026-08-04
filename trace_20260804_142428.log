@@ -1,0 +1,211 @@
+# preset 1: flutepr
+# preset 2: theremin
+s25 ON  v=0.50
+s25 OFF rel=1.00  travel=2730
+s23 ON  v=0.50
+s23 OFF rel=1.00  travel=1985
+s21 ON  v=0.50
+s21 OFF rel=1.00  travel=2679
+s21 ON  v=0.50
+s19 ON  v=0.50
+s14 ON  v=0.50
+s19 OFF rel=1.00  travel=1912
+s14 OFF rel=1.00  travel=2468
+s21 OFF rel=1.00  travel=2194
+s18 ON  v=0.50
+s14 ON  v=0.50
+s21 ON  v=0.50
+s14 OFF rel=1.00  travel=2468
+s18 OFF rel=1.00  travel=2618
+s21 OFF rel=0.54  travel=2186
+s14 ON  v=0.50
+s21 ON  v=0.50
+s18 ON  v=0.50
+s7 ON  v=0.50
+s14 OFF rel=1.00  travel=2191
+s21 OFF rel=0.80  travel=1978
+s18 OFF rel=0.31  travel=2256
+s7 OFF rel=1.00  travel=3266
+# preset 1: flutepr
+# preset 0: flute
+# preset 27: blocky
+# preset 26: presstest
+# preset 25: wurli
+s7 ON  v=0.14
+s7 OFF rel=0.91  travel=2987
+s14 ON  v=0.49
+s14 OFF rel=1.00  travel=1916
+# preset 24: epiano
+# preset 23: brass
+# preset 22: strbow
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=1659
+s19 ON  v=0.50
+s19 OFF rel=1.00  travel=1924
+s23 ON  v=0.50
+s23 OFF rel=1.00  travel=1995
+s19 ON  v=0.50
+s19 OFF rel=1.00  travel=1925
+s23 ON  v=0.50
+s19 ON  v=0.50
+s23 OFF rel=1.00  travel=1993
+s19 OFF rel=0.77  travel=1797
+s16 ON  v=0.50
+s14 ON  v=0.50
+s16 OFF rel=1.00  travel=2964
+s14 OFF rel=1.00  travel=2401
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=3482
+s14 ON  v=0.50
+s11 ON  v=0.50
+s7 ON  v=0.50
+s11 OFF rel=1.00  travel=3479
+s7 OFF rel=1.00  travel=3471
+s14 OFF rel=1.00  travel=2407
+s7 ON  v=0.50
+s11 ON  v=0.50
+s14 ON  v=0.50
+s2 ON  v=0.50
+s14 OFF rel=1.00  travel=2387
+s11 OFF rel=1.00  travel=3479
+s2 OFF rel=1.00  travel=3171
+s7 OFF rel=1.00  travel=3471
+s14 ON  v=0.50
+s11 ON  v=0.50
+s7 ON  v=0.50
+s19 ON  v=0.50
+s2 ON  v=0.50
+s11 OFF rel=1.00  travel=3478
+s7 OFF rel=1.00  travel=3471
+s14 OFF rel=0.83  travel=2379
+s14 ON  v=0.50
+s11 ON  v=0.50
+s7 ON  v=0.50
+s7 OFF rel=1.00  travel=3470
+s11 OFF rel=1.00  travel=3476
+s14 OFF rel=1.00  travel=2405
+s19 OFF rel=1.00  travel=1835
+s2 OFF rel=1.00  travel=3167
+# preset 21: strings
+s23 ON  v=0.58
+s14 ON  v=0.53
+s19 ON  v=0.50
+s19 OFF rel=1.00  travel=1888
+s23 OFF rel=1.00  travel=1963
+s14 OFF rel=1.00  travel=2460
+# preset 20: bowed
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=2527
+s11 ON  v=0.50
+s14 ON  v=0.50
+s7 ON  v=0.50
+s10 ON  v=0.50
+s10 OFF rel=0.34  travel=3018
+s7 OFF rel=1.00  travel=3479
+s11 OFF rel=1.00  travel=3495
+s14 OFF rel=1.00  travel=2528
+s14 ON  v=0.50
+s11 ON  v=0.50
+s7 ON  v=0.50
+s7 OFF rel=1.00  travel=3479
+s14 OFF rel=1.00  travel=2514
+s11 OFF rel=1.00  travel=3495
+s19 ON  v=0.50
+s7 ON  v=0.50
+s11 ON  v=0.50
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=2485
+s11 OFF rel=1.00  travel=3493
+s7 OFF rel=1.00  travel=3478
+s19 OFF rel=1.00  travel=1889
+s11 ON  v=0.50
+s14 ON  v=0.50
+s7 ON  v=0.50
+s14 OFF rel=1.00  travel=2471
+s7 OFF rel=1.00  travel=3477
+s11 OFF rel=1.00  travel=3492
+s16 ON  v=0.50
+s11 ON  v=0.50
+s7 ON  v=0.50
+s15 ON  v=0.50
+s11 OFF rel=1.00  travel=3491
+s7 OFF rel=1.00  travel=3477
+s11 ON  v=0.50
+s2 ON  v=0.50
+s7 ON  v=0.50
+s8 ON  v=0.50
+s14 ON  v=0.50
+s16 OFF rel=0.15  travel=2936
+s15 OFF rel=0.01  travel=2584
+s15 ON  v=0.50
+s8 OFF rel=0.33  travel=2465
+s15 OFF rel=0.85  travel=913
+s8 ON  v=0.50
+s11 OFF rel=0.64  travel=3485
+s7 OFF rel=1.00  travel=3477
+s2 OFF rel=0.70  travel=3176
+s15 ON  v=0.50
+s14 OFF rel=1.00  travel=2459
+# preset 21: strings
+# preset 20: bowed
+# preset 19: reed
+s15 ON  v=0.50
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=2440
+s13 ON  v=0.50
+s13 OFF rel=0.90  travel=2386
+s13 ON  v=0.50
+s13 OFF rel=0.84  travel=2390
+s13 ON  v=0.50
+s13 OFF rel=1.00  travel=2392
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=2106
+s16 ON  v=0.50
+s16 OFF rel=1.00  travel=2930
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=1813
+s16 ON  v=0.50
+s16 OFF rel=0.60  travel=2496
+# calibrated (hands off the keys)
+# all 25 sensors healthy
+s15 ON  v=0.50
+s15 OFF rel=0.48  travel=3200
+s15 ON  v=0.50
+s15 OFF rel=0.40  travel=1097
+s15 ON  v=0.50
+s15 OFF rel=0.81  travel=1462
+# isolation snapshot, one line per column. '!' = stuck low.
+s1=3724  s6=3701  s11=3636  s16=3630  s21=3656
+s2=3711  s7=3652  s12=3685  s17=3641  s22=3632
+s3=3715  s8=3573  s13=3658  s18=3678  s23=3648
+s4=3646  s9=3533  s14=3697  s19=3713  s24=3604
+s5=3630  s10=3591  s15=3638  s20=3635  s25=3661
+s15 ON  v=0.50
+s15 OFF rel=0.84  travel=1462
+s15 ON  v=0.50
+s15 OFF rel=1.00  travel=3410
+s16 ON  v=0.50
+s16 OFF rel=1.00  travel=3411
+s23 ON  v=0.50
+s23 OFF rel=1.00  travel=3109
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=3550
+s1 ON  v=0.50
+s1 OFF rel=1.00  travel=3078
+# preset 18: drawbar
+# preset 17: chordtune
+# preset 16: glock
+s16 ON  v=0.40
+s16 OFF rel=1.00  travel=2916
+s14 ON  v=0.59
+s14 OFF rel=1.00  travel=2986
+s9 ON  v=0.56
+s7 ON  v=0.50
+s9 OFF rel=1.00  travel=2808
+s7 OFF rel=1.00  travel=2653
+s7 ON  v=0.34
+s7 OFF rel=1.00  travel=2257
+s9 ON  v=0.63
+s9 OFF rel=1.00  travel=1870
+s9 ON  v=0.63
+s9 OFF rel=1.00  travel=1981

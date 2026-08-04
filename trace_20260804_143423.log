@@ -1,0 +1,865 @@
+# warming up the sensors before calibrating, hands off...
+# calibrated (hands off the keys)
+# all 25 sensors healthy
+# READY
+# 0-9 preset  n/p next/prev  l list  R routes  b recal  t trace  w keys
+# L toggles travel learning — play each key to its bottom, then turn it off
+# presets:
+#  0 * flute	LP	det 4c	verb 0.40	dly 0.00	| const>amp velocity>amp position>pitch lfo1>pitch position>cutoff velocity>cutoff
+#  1   flutepr	LP	det 4c	verb 0.40	dly 0.00	| const>amp velocity>amp lfo1>pitch lfo1>pitch pressure>cutoff velocity>cutoff
+#  2   theremin	LP	det 0c	verb 0.45	dly 0.00	| lfo1>pitch const>amp position>amp
+#  3   swell	LP	det 9c	verb 0.42	dly 0.00	| const>amp position>amp position>cutoff position>res position>oscB lfo1>pitch
+#  4   airy	LP	det 6c	verb 0.45	dly 0.20	| const>amp velocity>amp lfo1>pitch lfo2>oscB
+#  5   circus	HP	det 9c	verb 0.20	dly 0.58	| const>amp velocity>amp lfo1>pitch velocity>cutoff
+#  6   circusb	LP	det 6c	verb 0.30	dly 0.45	| const>amp velocity>amp lfo1>pitch velocity>cutoff
+#  7   drift	LP	det 7c	verb 0.25	dly 0.00	| const>amp velocity>amp random>detune random>cutoff velocity>cutoff keytrack>cutoff
+#  8   wide	LP	det 16c	verb 0.32	dly 0.00	| const>amp velocity>amp random>detune random>cutoff velocity>cutoff keytrack>cutoff
+#  9   obie	LP	det 9c	verb 0.36	dly 0.00	| const>amp velocity>amp velocity>cutoff position>pitch random>detune position>cutoff
+#  10   fatpluck	LP	det 13c	verb 0.20	dly 0.00	| const>amp velocity>amp velocity>cutoff ampenv>cutoff
+#  11   tremolo	LP	det 6c	verb 0.30	dly 0.00	| const>amp velocity>amp lfo2>amp velocity>cutoff
+#  12   stepped	LP	det 8c	verb 0.30	dly 0.35	| const>amp velocity>amp lfo2>cutoff velocity>cutoff
+#  13   shimmer	LP	det 5c	verb 0.45	dly 0.00	| const>amp velocity>amp lfo2>pwm position>pwm position>oscB velocity>cutoff
+#  14   nasal	BP	det 9c	verb 0.28	dly 0.20	| const>amp velocity>amp velocity>cutoff
+#  15   harpsi	LP	det 4c	verb 0.38	dly 0.00	| const>amp velocity>amp position>pitch position>cutoff keytrack>cutoff random>detune filtenv>oscB
+#  16   glock	LP	det 0c	verb 0.28	dly 0.00	| const>amp velocity>amp filtenv>oscB velocity>cutoff position>cutoff keytrack>cutoff
+#  17   chordtune	LP	det 3c	verb 0.35	dly 0.00	| const>amp velocity>amp const>pitch position>pitch keytrack>cutoff
+#  18   drawbar	LP	det 0c	verb 0.30	dly 0.00	| const>amp velocity>amp const>oscB position>oscB position>cutoff
+#  19   reed	LP	det 5c	verb 0.35	dly 0.00	| const>amp position>amp const>oscB position>oscB position>cutoff lfo1>pitch
+#  20   bowed	LP	det 5c	verb 0.40	dly 0.00	| const>amp position>amp position>cutoff const>oscB position>oscB position>pitch random>detune
+#  21   strings	LP	det 6c	verb 0.55	dly 0.22	| const>amp velocity>amp random>detune position>cutoff velocity>cutoff lfo1>pitch
+#  22   strbow	LP	det 6c	verb 0.55	dly 0.00	| const>amp position>amp position>cutoff position>res random>detune lfo1>pitch
+#  23   brass	LP	det 11c	verb 0.30	dly 0.00	| const>amp velocity>amp filtenv>cutoff velocity>cutoff position>cutoff filtenv>res keytrack>cutoff noteage>cutoff lfo1>pitch random>detune
+#  24   epiano	LP	det 6c	verb 0.34	dly 0.00	| const>amp velocity>amp filtenv>oscB keytrack>oscB velocity>cutoff position>cutoff lfo1>amp
+#  25   wurli	LP	det 4c	verb 0.30	dly 0.00	| const>amp velocity>amp velocity>cutoff velocity>pwm position>cutoff keytrack>cutoff lfo1>amp
+#  26   dxpiano	LP	det 0c	verb 0.32	dly 0.00	| const>amp velocity>amp filtenv>fm const>fm keytrack>fm position>fm lfo1>amp
+#  27   fmbell	LP	det 0c	verb 0.46	dly 0.00	| const>amp velocity>amp filtenv>fm const>fm random>fm position>fm keytrack>cutoff
+#  28   presstest	LP	det 6c	verb 0.20	dly 0.00	| pressure>cutoff const>amp pressure>amp
+#  29   blocky	LP	det 0c	verb 0.00	dly 0.00	| const>amp velocity>amp
+# preset 29: blocky
+# preset 28: presstest
+# preset 27: fmbell
+s23 ON  v=0.57
+s23 OFF rel=1.00  travel=3192
+s19 ON  v=0.63
+s19 OFF rel=1.00  travel=1975
+s21 ON  v=0.63
+s21 OFF rel=1.00  travel=2121
+s23 ON  v=0.57
+s19 ON  v=0.26
+s19 OFF rel=1.00  travel=1969
+s23 OFF rel=1.00  travel=1799
+s19 ON  v=0.58
+s19 OFF rel=1.00  travel=1778
+s14 ON  v=0.54
+s19 ON  v=0.54
+s23 ON  v=0.53
+s19 OFF rel=1.00  travel=1685
+s23 OFF rel=0.55  travel=2030
+s14 OFF rel=0.57  travel=2056
+s19 ON  v=0.22
+s11 ON  v=0.66
+s16 ON  v=0.55
+s19 OFF rel=1.00  travel=1776
+s16 OFF rel=1.00  travel=2456
+s16 ON  v=0.56
+s9 ON  v=0.62
+s11 OFF rel=1.00  travel=3490
+s14 ON  v=0.51
+s16 OFF rel=1.00  travel=2454
+s14 OFF rel=1.00  travel=2046
+s13 ON  v=0.48
+s16 ON  v=0.08
+s7 ON  v=0.58
+s9 OFF rel=1.00  travel=3284
+s7 OFF rel=1.00  travel=3173
+s7 ON  v=0.54
+s13 OFF rel=1.00  travel=2515
+s13 ON  v=0.11
+s11 ON  v=0.45
+s19 ON  v=0.55
+s7 OFF rel=1.00  travel=3173
+s16 OFF rel=1.00  travel=2336
+s13 OFF rel=1.00  travel=2502
+s14 ON  v=0.30
+s19 OFF rel=1.00  travel=1767
+s11 OFF rel=1.00  travel=3482
+s14 OFF rel=1.00  travel=2030
+s16 ON  v=0.48
+s23 ON  v=0.66
+s16 OFF rel=1.00  travel=2273
+s23 OFF rel=0.50  travel=2006
+s23 ON  v=0.12
+s23 OFF rel=1.00  travel=2007
+s23 ON  v=0.71
+s23 OFF rel=1.00  travel=1963
+s23 ON  v=0.78
+s23 OFF rel=1.00  travel=2117
+s23 ON  v=0.66
+s23 OFF rel=1.00  travel=2118
+s21 ON  v=0.64
+s21 OFF rel=0.90  travel=2182
+s21 ON  v=0.65
+s21 OFF rel=0.70  travel=2183
+s21 ON  v=0.72
+s21 OFF rel=1.00  travel=2313
+s21 ON  v=0.70
+s21 OFF rel=1.00  travel=2393
+s23 ON  v=0.72
+s23 OFF rel=1.00  travel=2118
+s19 ON  v=0.64
+s19 OFF rel=1.00  travel=2004
+s21 ON  v=0.57
+s21 OFF rel=1.00  travel=2387
+s14 ON  v=0.60
+s14 OFF rel=1.00  travel=1809
+s16 ON  v=0.64
+s16 OFF rel=0.91  travel=2981
+s14 ON  v=0.68
+s14 OFF rel=0.27  travel=2507
+s16 ON  v=0.58
+s16 OFF rel=1.00  travel=2983
+s16 ON  v=0.08
+s14 ON  v=0.54
+s14 OFF rel=1.00  travel=2494
+s16 OFF rel=1.00  travel=2983
+s14 ON  v=0.61
+s16 ON  v=0.60
+s14 OFF rel=1.00  travel=2561
+s16 OFF rel=0.16  travel=3136
+s19 ON  v=0.60
+s14 ON  v=0.60
+s16 ON  v=0.52
+s14 OFF rel=1.00  travel=2607
+s16 OFF rel=1.00  travel=3134
+s19 OFF rel=1.00  travel=1974
+# preset 28: presstest
+# preset 29: blocky
+# preset 28: presstest
+# preset 27: fmbell
+s14 ON  v=0.53
+s14 OFF rel=1.00  travel=2564
+# preset 26: dxpiano
+s14 ON  v=0.63
+s14 OFF rel=1.00  travel=2301
+s14 ON  v=0.63
+s11 ON  v=0.64
+s16 ON  v=0.57
+s16 OFF rel=1.00  travel=2941
+s16 ON  v=0.50
+s14 OFF rel=0.99  travel=2375
+s11 OFF rel=1.00  travel=3466
+s16 OFF rel=0.72  travel=3182
+s14 ON  v=0.59
+s9 ON  v=0.61
+s19 ON  v=0.64
+s16 ON  v=0.13
+s16 OFF rel=1.00  travel=3182
+s9 OFF rel=1.00  travel=3227
+s11 ON  v=0.64
+s18 ON  v=0.52
+s16 ON  v=0.19
+s14 OFF rel=1.00  travel=2374
+s19 OFF rel=0.83  travel=1993
+s16 OFF rel=1.00  travel=3112
+s18 OFF rel=1.00  travel=2581
+s11 OFF rel=1.00  travel=3471
+s16 ON  v=0.56
+s18 ON  v=0.50
+s16 OFF rel=0.63  travel=2770
+s18 OFF rel=1.00  travel=2484
+s19 ON  v=0.59
+s19 OFF rel=1.00  travel=2058
+s18 ON  v=0.50
+s18 OFF rel=1.00  travel=2423
+s19 ON  v=0.58
+s19 OFF rel=1.00  travel=1944
+s14 ON  v=0.52
+s21 ON  v=0.66
+s14 OFF rel=1.00  travel=2387
+s21 OFF rel=1.00  travel=2111
+s14 ON  v=0.51
+s21 ON  v=0.62
+s19 ON  v=0.57
+s14 OFF rel=1.00  travel=2194
+s19 OFF rel=1.00  travel=1862
+s21 OFF rel=1.00  travel=2107
+s18 ON  v=0.60
+s21 ON  v=0.57
+s14 ON  v=0.57
+s14 OFF rel=1.00  travel=2048
+s21 OFF rel=1.00  travel=2003
+s18 OFF rel=1.00  travel=2383
+s14 ON  v=0.58
+s11 ON  v=0.60
+s11 OFF rel=1.00  travel=3512
+s14 OFF rel=1.00  travel=2404
+s7 ON  v=0.71
+s11 ON  v=0.61
+s16 ON  v=0.63
+s16 OFF rel=1.00  travel=2795
+s16 ON  v=0.56
+s16 OFF rel=1.00  travel=2807
+s7 OFF rel=1.00  travel=3521
+s11 OFF rel=1.00  travel=3511
+s11 ON  v=0.57
+s7 ON  v=0.59
+s14 ON  v=0.38
+s11 OFF rel=1.00  travel=3499
+s7 OFF rel=1.00  travel=3519
+s14 OFF rel=1.00  travel=2391
+s19 ON  v=0.64
+s20 ON  v=0.61
+s7 ON  v=0.64
+s11 ON  v=0.61
+s11 OFF rel=1.00  travel=3218
+s7 OFF rel=1.00  travel=3497
+s20 OFF rel=1.00  travel=2532
+s19 OFF rel=1.00  travel=1831
+s20 ON  v=0.65
+s19 ON  v=0.62
+s7 ON  v=0.59
+s11 ON  v=0.58
+s20 OFF rel=1.00  travel=1519
+s7 OFF rel=1.00  travel=3505
+s11 OFF rel=1.00  travel=3498
+s19 OFF rel=0.68  travel=1860
+s19 ON  v=0.51
+s19 OFF rel=1.00  travel=1859
+s13 ON  v=0.49
+s19 ON  v=0.58
+s16 ON  v=0.52
+s13 OFF rel=1.00  travel=3062
+s19 OFF rel=1.00  travel=1784
+s16 OFF rel=1.00  travel=2775
+s13 ON  v=0.42
+s19 ON  v=0.57
+s16 ON  v=0.46
+s13 OFF rel=1.00  travel=3061
+s19 OFF rel=1.00  travel=1784
+s16 OFF rel=1.00  travel=2770
+s19 ON  v=0.51
+s21 ON  v=0.54
+s13 ON  v=0.30
+s11 ON  v=0.44
+s11 OFF rel=0.73  travel=3502
+s19 OFF rel=1.00  travel=1637
+s13 OFF rel=0.27  travel=3003
+s21 OFF rel=0.61  travel=2003
+s19 ON  v=0.50
+s21 ON  v=0.58
+s13 ON  v=0.33
+s13 OFF rel=0.81  travel=3004
+s19 OFF rel=1.00  travel=1733
+s21 OFF rel=1.00  travel=1977
+s21 ON  v=0.52
+s19 ON  v=0.50
+s13 ON  v=0.24
+s11 ON  v=0.01
+s19 OFF rel=1.00  travel=1733
+s11 OFF rel=1.00  travel=3506
+s21 OFF rel=1.00  travel=1967
+s13 OFF rel=1.00  travel=2630
+s13 ON  v=0.46
+s11 ON  v=0.45
+s13 OFF rel=1.00  travel=3098
+s11 OFF rel=1.00  travel=3515
+s11 ON  v=0.57
+s11 OFF rel=1.00  travel=3515
+s9 ON  v=0.55
+s9 OFF rel=1.00  travel=3407
+s7 ON  v=0.64
+s7 OFF rel=1.00  travel=3522
+s19 ON  v=0.64
+s19 OFF rel=1.00  travel=1557
+s23 ON  v=0.58
+s14 ON  v=0.63
+s19 ON  v=0.54
+s23 OFF rel=1.00  travel=2008
+s14 OFF rel=1.00  travel=2084
+s19 OFF rel=1.00  travel=1718
+s14 ON  v=0.59
+s19 ON  v=0.61
+s21 ON  v=0.60
+s14 OFF rel=0.95  travel=2024
+s21 OFF rel=1.00  travel=1921
+s19 OFF rel=1.00  travel=1718
+s14 ON  v=0.61
+s21 ON  v=0.59
+s18 ON  v=0.44
+s14 OFF rel=1.00  travel=1964
+s18 OFF rel=1.00  travel=2322
+s21 OFF rel=1.00  travel=1921
+# preset 27: fmbell
+# preset 28: presstest
+# preset 29: blocky
+# preset 0: flute
+# preset 1: flutepr
+# preset 0: flute
+# preset 29: blocky
+# preset 28: presstest
+# preset 27: fmbell
+# preset 26: dxpiano
+# preset 25: wurli
+# preset 24: epiano
+s14 ON  v=0.54
+s20 ON  v=0.59
+s23 ON  v=0.55
+s19 ON  v=0.56
+s14 OFF rel=0.70  travel=1884
+s19 OFF rel=1.00  travel=1728
+s20 OFF rel=1.00  travel=1478
+s23 OFF rel=1.00  travel=1957
+s23 ON  v=0.57
+s14 ON  v=0.62
+s20 ON  v=0.48
+s20 OFF rel=1.00  travel=1407
+s23 OFF rel=1.00  travel=1827
+s11 ON  v=0.61
+s14 OFF rel=0.88  travel=1771
+s16 ON  v=0.56
+s20 ON  v=0.65
+s19 ON  v=0.62
+s20 OFF rel=1.00  travel=1445
+s19 OFF rel=1.00  travel=1763
+s16 OFF rel=1.00  travel=2496
+s11 OFF rel=0.98  travel=3503
+s9 ON  v=0.65
+s14 ON  v=0.61
+s16 ON  v=0.54
+s9 OFF rel=1.00  travel=3418
+s16 OFF rel=1.00  travel=2245
+s14 OFF rel=1.00  travel=1703
+s9 ON  v=0.63
+s16 ON  v=0.57
+s13 ON  v=0.43
+s9 OFF rel=1.00  travel=3239
+s13 OFF rel=1.00  travel=3060
+s16 OFF rel=1.00  travel=2130
+s14 ON  v=0.62
+s9 ON  v=0.54
+s6 ON  v=0.59
+s14 OFF rel=1.00  travel=1654
+s6 OFF rel=1.00  travel=2329
+s9 OFF rel=1.00  travel=3141
+s9 ON  v=0.57
+s6 ON  v=0.61
+s14 ON  v=0.62
+s6 OFF rel=1.00  travel=3548
+s9 OFF rel=1.00  travel=3055
+s14 OFF rel=1.00  travel=2058
+s18 ON  v=0.51
+s18 OFF rel=0.74  travel=2225
+s6 ON  v=0.57
+s18 ON  v=0.58
+s9 ON  v=0.52
+s14 ON  v=0.38
+s6 OFF rel=1.00  travel=3534
+s9 OFF rel=1.00  travel=3044
+s14 OFF rel=1.00  travel=2053
+s18 OFF rel=0.93  travel=1912
+s18 ON  v=0.26
+s14 ON  v=0.46
+s14 OFF rel=1.00  travel=1776
+s18 OFF rel=1.00  travel=1875
+s18 ON  v=0.54
+s2 ON  v=0.53
+s9 ON  v=0.43
+s9 OFF rel=1.00  travel=2933
+s18 OFF rel=1.00  travel=1857
+s2 OFF rel=1.00  travel=2366
+# preset 25: wurli
+# preset 26: dxpiano
+s18 ON  v=0.51
+s9 ON  v=0.59
+s2 ON  v=0.64
+s14 ON  v=0.49
+s2 OFF rel=0.59  travel=3121
+s9 OFF rel=1.00  travel=3416
+s14 OFF rel=1.00  travel=2418
+s18 OFF rel=1.00  travel=2359
+s9 ON  v=0.59
+s18 ON  v=0.03
+s2 ON  v=0.50
+s14 ON  v=0.43
+s9 OFF rel=1.00  travel=3417
+s14 OFF rel=1.00  travel=2417
+s18 OFF rel=1.00  travel=2359
+s2 OFF rel=0.76  travel=3125
+s18 ON  v=0.54
+s9 ON  v=0.63
+s2 ON  v=0.52
+s14 ON  v=0.60
+s14 OFF rel=1.00  travel=2413
+s18 OFF rel=1.00  travel=2358
+s2 OFF rel=1.00  travel=3115
+s9 OFF rel=1.00  travel=3419
+s9 ON  v=0.63
+s18 ON  v=0.25
+s2 ON  v=0.62
+s14 ON  v=0.56
+s14 OFF rel=0.76  travel=2397
+s9 OFF rel=1.00  travel=3416
+s2 OFF rel=0.78  travel=3163
+s18 OFF rel=0.56  travel=2341
+s18 ON  v=0.58
+s9 ON  v=0.62
+s14 ON  v=0.60
+s2 ON  v=0.58
+s14 OFF rel=0.22  travel=2428
+s2 OFF rel=0.21  travel=3163
+s9 OFF rel=0.69  travel=3413
+s9 ON  v=0.00
+s14 ON  v=0.12
+s2 ON  v=0.24
+s9 OFF rel=1.00  travel=3411
+s14 OFF rel=1.00  travel=2423
+s2 OFF rel=1.00  travel=3075
+s18 OFF rel=1.00  travel=2338
+s9 ON  v=0.57
+s19 ON  v=0.04
+s2 ON  v=0.08
+s2 OFF rel=0.32  travel=3073
+s9 OFF rel=1.00  travel=3403
+s2 ON  v=0.22
+s19 OFF rel=0.80  travel=2110
+s9 ON  v=0.60
+s19 ON  v=0.07
+s19 OFF rel=1.00  travel=2110
+s9 OFF rel=1.00  travel=3401
+s2 OFF rel=1.00  travel=2914
+s19 ON  v=0.06
+s19 OFF rel=1.00  travel=2076
+s2 ON  v=0.58
+s9 ON  v=0.52
+s19 ON  v=0.00
+s19 OFF rel=1.00  travel=2052
+s9 OFF rel=1.00  travel=3388
+s2 OFF rel=1.00  travel=2910
+s19 ON  v=0.05
+s19 OFF rel=1.00  travel=2052
+s19 ON  v=0.15
+s19 OFF rel=0.66  travel=1979
+s9 ON  v=0.65
+s9 OFF rel=1.00  travel=3236
+s19 ON  v=0.02
+s19 OFF rel=1.00  travel=2044
+s21 ON  v=0.63
+s21 OFF rel=1.00  travel=1883
+s19 ON  v=0.23
+s19 OFF rel=0.53  travel=2044
+s19 ON  v=0.00
+s19 OFF rel=1.00  travel=3347
+# calibrated (hands off the keys)
+# all 25 sensors healthy
+s19 ON  v=0.62
+s21 ON  v=0.54
+s19 OFF rel=1.00  travel=3195
+s21 OFF rel=1.00  travel=3327
+s19 ON  v=0.65
+s19 OFF rel=1.00  travel=3267
+s18 ON  v=0.25
+s14 ON  v=0.48
+s18 OFF rel=1.00  travel=3292
+s14 OFF rel=1.00  travel=3088
+s7 ON  v=0.61
+s7 OFF rel=1.00  travel=2819
+s9 ON  v=0.35
+s9 OFF rel=1.00  travel=2759
+s2 ON  v=0.25
+s18 ON  v=0.33
+s9 ON  v=0.51
+s18 OFF rel=1.00  travel=2577
+s19 ON  v=0.54
+s23 ON  v=0.38
+s9 OFF rel=1.00  travel=2574
+s2 OFF rel=1.00  travel=2671
+s14 ON  v=0.33
+s11 ON  v=0.46
+s9 ON  v=0.63
+s14 OFF rel=0.67  travel=1992
+s18 ON  v=0.20
+s14 ON  v=0.24
+s7 ON  v=0.66
+s18 OFF rel=0.98  travel=2332
+s19 OFF rel=0.95  travel=3339
+s7 OFF rel=1.00  travel=3462
+s23 OFF rel=1.00  travel=2585
+s14 OFF rel=1.00  travel=1866
+s11 OFF rel=1.00  travel=2832
+s9 OFF rel=1.00  travel=3062
+s6 ON  v=0.66
+s21 ON  v=0.68
+s14 ON  v=0.50
+s6 OFF rel=1.00  travel=3515
+s14 OFF rel=1.00  travel=1817
+s21 OFF rel=1.00  travel=3422
+s6 ON  v=0.58
+s14 ON  v=0.65
+s21 ON  v=0.63
+s14 OFF rel=1.00  travel=2871
+s6 OFF rel=1.00  travel=3530
+s21 OFF rel=0.02  travel=3422
+s21 ON  v=0.63
+s6 ON  v=0.61
+s14 ON  v=0.55
+s14 OFF rel=0.96  travel=2870
+s6 OFF rel=0.71  travel=3528
+s21 OFF rel=0.54  travel=3420
+s6 ON  v=0.52
+s21 ON  v=0.04
+s14 ON  v=0.60
+s21 OFF rel=0.79  travel=3390
+s14 OFF rel=0.11  travel=3152
+s6 OFF rel=0.26  travel=3538
+s21 ON  v=0.65
+s6 ON  v=0.62
+s14 ON  v=0.61
+s6 OFF rel=1.00  travel=3536
+s14 OFF rel=1.00  travel=3239
+s21 OFF rel=1.00  travel=3390
+s21 ON  v=0.21
+s6 ON  v=0.03
+s14 ON  v=0.04
+s14 OFF rel=1.00  travel=3238
+s6 OFF rel=1.00  travel=3532
+s21 OFF rel=0.81  travel=3381
+s21 ON  v=0.53
+s6 ON  v=0.18
+s14 ON  v=0.38
+s21 OFF rel=1.00  travel=3391
+s6 OFF rel=1.00  travel=3541
+s14 OFF rel=1.00  travel=3191
+s21 ON  v=0.32
+s21 OFF rel=1.00  travel=3396
+s21 ON  v=0.15
+s21 OFF rel=1.00  travel=3398
+s21 ON  v=0.13
+s14 ON  v=0.10
+s23 ON  v=0.26
+s9 ON  v=0.12
+s11 ON  v=0.68
+s7 ON  v=0.61
+s16 ON  v=0.32
+s11 OFF rel=1.00  travel=3550
+s9 OFF rel=1.00  travel=3406
+s7 OFF rel=1.00  travel=3588
+s16 OFF rel=1.00  travel=3051
+s14 OFF rel=1.00  travel=3230
+s21 OFF rel=1.00  travel=3408
+s23 OFF rel=1.00  travel=3396
+s16 ON  v=0.38
+s19 ON  v=0.29
+s14 ON  v=0.32
+s21 ON  v=0.19
+s14 OFF rel=1.00  travel=3213
+s21 OFF rel=1.00  travel=3397
+s14 ON  v=0.51
+s21 ON  v=0.16
+s21 OFF rel=1.00  travel=3171
+s14 OFF rel=1.00  travel=2854
+s14 ON  v=0.52
+s21 ON  v=0.61
+s23 ON  v=0.59
+s11 ON  v=0.56
+s19 OFF rel=1.00  travel=3072
+s19 ON  v=0.29
+s18 ON  v=0.17
+s11 OFF rel=0.63  travel=3488
+s14 OFF rel=0.68  travel=2797
+s16 OFF rel=0.93  travel=3443
+s23 OFF rel=1.00  travel=3313
+s21 OFF rel=1.00  travel=3369
+s18 OFF rel=1.00  travel=3350
+s19 OFF rel=1.00  travel=3072
+s14 ON  v=0.61
+s14 OFF rel=1.00  travel=2790
+s9 ON  v=0.53
+s9 OFF rel=1.00  travel=3322
+s7 ON  v=0.53
+s7 OFF rel=1.00  travel=3465
+s2 ON  v=0.61
+s2 OFF rel=1.00  travel=1744
+s4 ON  v=0.53
+s4 OFF rel=1.00  travel=3282
+s11 ON  v=0.64
+s2 ON  v=0.60
+s7 ON  v=0.63
+s7 OFF rel=1.00  travel=3343
+s11 OFF rel=1.00  travel=3280
+s2 OFF rel=1.00  travel=2289
+s11 ON  v=0.58
+s2 ON  v=0.61
+s7 ON  v=0.68
+s7 OFF rel=1.00  travel=3442
+s11 OFF rel=1.00  travel=3422
+s2 OFF rel=0.40  travel=2289
+s17 ON  v=0.07
+s14 ON  v=0.46
+s14 OFF rel=1.00  travel=2468
+s17 OFF rel=1.00  travel=3166
+s17 ON  v=0.69
+s17 OFF rel=1.00  travel=2794
+s17 ON  v=0.38
+s14 ON  v=0.64
+s14 OFF rel=1.00  travel=2241
+s17 OFF rel=1.00  travel=3823
+s18 ON  v=0.74
+s15 ON  v=0.11
+s20 ON  v=0.65
+s20 OFF rel=1.00  travel=3214
+s18 OFF rel=1.00  travel=3460
+s15 OFF rel=1.00  travel=3856
+s19 ON  v=0.64
+s16 ON  v=0.61
+s19 OFF rel=1.00  travel=3075
+s16 OFF rel=1.00  travel=3424
+s20 ON  v=0.74
+s17 ON  v=0.35
+s22 ON  v=0.60
+s22 OFF rel=1.00  travel=3131
+s20 OFF rel=1.00  travel=3178
+s17 OFF rel=1.00  travel=3844
+s18 ON  v=0.59
+s18 OFF rel=1.00  travel=3463
+s22 ON  v=0.62
+s24 ON  v=0.00
+s19 ON  v=0.51
+s19 OFF rel=1.00  travel=2756
+s24 OFF rel=1.00  travel=3104
+s22 OFF rel=1.00  travel=2013
+s17 ON  v=0.43
+s14 ON  v=0.70
+s14 OFF rel=1.00  travel=2111
+s17 OFF rel=1.00  travel=3844
+s15 ON  v=0.05
+s18 ON  v=0.57
+s18 OFF rel=1.00  travel=3140
+s15 OFF rel=1.00  travel=3856
+s19 ON  v=0.64
+s16 ON  v=0.45
+s19 OFF rel=1.00  travel=2552
+s16 OFF rel=1.00  travel=3073
+s20 ON  v=0.66
+s17 ON  v=0.15
+s20 OFF rel=1.00  travel=3176
+s17 OFF rel=1.00  travel=3816
+s18 ON  v=0.60
+s21 ON  v=0.58
+s17 ON  v=0.10
+s17 OFF rel=1.00  travel=3692
+s21 OFF rel=1.00  travel=3388
+s18 OFF rel=1.00  travel=3440
+s19 ON  v=0.60
+s23 ON  v=0.57
+s19 OFF rel=1.00  travel=2357
+s23 OFF rel=1.00  travel=3307
+s7 ON  v=0.68
+s10 ON  v=0.64
+s7 OFF rel=1.00  travel=3484
+s10 OFF rel=1.00  travel=3385
+s6 ON  v=0.24
+s6 OFF rel=1.00  travel=3793
+s8 ON  v=0.72
+s12 ON  v=0.69
+s8 OFF rel=1.00  travel=3183
+s12 OFF rel=1.00  travel=3558
+s13 ON  v=0.70
+s9 ON  v=0.63
+s13 OFF rel=1.00  travel=2981
+s9 OFF rel=1.00  travel=3294
+s14 ON  v=0.66
+s10 ON  v=0.62
+s14 OFF rel=1.00  travel=2101
+s10 OFF rel=1.00  travel=3383
+s15 ON  v=0.24
+s11 ON  v=0.60
+s17 ON  v=0.05
+s17 OFF rel=1.00  travel=3234
+s11 OFF rel=1.00  travel=3461
+s15 OFF rel=1.00  travel=3694
+s12 ON  v=0.62
+s16 ON  v=0.36
+s12 OFF rel=1.00  travel=3565
+s16 OFF rel=1.00  travel=2786
+s17 ON  v=0.00
+s13 ON  v=0.64
+s17 OFF rel=1.00  travel=3756
+s13 OFF rel=0.67  travel=2567
+s21 ON  v=0.48
+s21 OFF rel=1.00  travel=3382
+s19 ON  v=0.64
+s19 OFF rel=1.00  travel=2161
+s16 ON  v=0.24
+s16 OFF rel=1.00  travel=2465
+s14 ON  v=0.50
+s14 OFF rel=1.00  travel=1954
+s14 ON  v=0.56
+s14 OFF rel=1.00  travel=1934
+s18 ON  v=0.58
+s14 ON  v=0.62
+s14 OFF rel=1.00  travel=2432
+s18 OFF rel=1.00  travel=3451
+s18 ON  v=0.45
+s14 ON  v=0.52
+s14 OFF rel=1.00  travel=2435
+s18 OFF rel=0.95  travel=3443
+s19 ON  v=0.47
+s19 OFF rel=1.00  travel=3153
+s19 ON  v=0.56
+s19 OFF rel=1.00  travel=3277
+s19 ON  v=0.56
+s19 OFF rel=1.00  travel=3276
+s23 ON  v=0.05
+s19 ON  v=0.60
+s16 ON  v=0.40
+s19 OFF rel=1.00  travel=3461
+s23 OFF rel=0.31  travel=3133
+s14 ON  v=0.42
+s16 OFF rel=1.00  travel=2504
+s11 ON  v=0.41
+s14 OFF rel=1.00  travel=2243
+s8 ON  v=0.61
+s7 ON  v=0.61
+s11 OFF rel=1.00  travel=3381
+s7 OFF rel=1.00  travel=3518
+s8 OFF rel=1.00  travel=3339
+s11 ON  v=0.47
+s7 ON  v=0.48
+s11 OFF rel=1.00  travel=3128
+s7 OFF rel=1.00  travel=3240
+s11 ON  v=0.59
+s19 ON  v=0.56
+s14 ON  v=0.55
+s14 OFF rel=0.84  travel=2043
+s19 OFF rel=0.31  travel=3474
+s11 OFF rel=1.00  travel=2979
+s11 ON  v=0.47
+s14 ON  v=0.41
+s14 OFF rel=0.78  travel=1997
+s11 OFF rel=1.00  travel=2979
+s19 ON  v=0.56
+s14 ON  v=0.53
+s11 ON  v=0.45
+s7 ON  v=0.46
+s14 OFF rel=1.00  travel=1729
+s11 OFF rel=1.00  travel=2646
+s7 OFF rel=1.00  travel=2872
+s19 OFF rel=0.67  travel=3106
+s19 ON  v=0.57
+s14 ON  v=0.53
+s11 ON  v=0.46
+s7 ON  v=0.48
+s19 OFF rel=1.00  travel=2705
+s21 ON  v=0.59
+s21 OFF rel=1.00  travel=3303
+s25 ON  v=0.25
+s7 OFF rel=1.00  travel=2586
+s11 OFF rel=1.00  travel=2503
+s14 OFF rel=1.00  travel=1632
+s25 OFF rel=1.00  travel=2829
+s21 ON  v=0.59
+s21 OFF rel=1.00  travel=3015
+s23 ON  v=0.56
+s23 OFF rel=1.00  travel=2960
+s19 ON  v=0.58
+s19 OFF rel=1.00  travel=2382
+s16 ON  v=0.51
+s16 OFF rel=1.00  travel=2420
+s11 ON  v=0.50
+s11 OFF rel=1.00  travel=2438
+s7 ON  v=0.43
+s7 OFF rel=1.00  travel=2406
+s4 ON  v=0.27
+s4 OFF rel=0.31  travel=3398
+s25 ON  v=0.48
+s25 OFF rel=1.00  travel=1486
+s19 ON  v=0.48
+s18 ON  v=0.55
+s19 OFF rel=1.00  travel=2104
+s14 ON  v=0.52
+s18 OFF rel=1.00  travel=3099
+s14 OFF rel=1.00  travel=3291
+s19 ON  v=0.65
+s19 OFF rel=0.15  travel=3117
+s19 ON  v=0.63
+s18 ON  v=0.37
+s19 OFF rel=1.00  travel=3115
+s14 ON  v=0.58
+s18 OFF rel=1.00  travel=3528
+s13 ON  v=0.61
+s14 OFF rel=1.00  travel=3295
+s13 OFF rel=1.00  travel=3591
+s9 ON  v=0.54
+s9 OFF rel=1.00  travel=3501
+s9 ON  v=0.55
+s9 OFF rel=1.00  travel=3503
+s9 ON  v=0.73
+s9 OFF rel=1.00  travel=3504
+s9 ON  v=0.77
+s9 OFF rel=1.00  travel=3504
+s14 ON  v=0.12
+s9 ON  v=0.62
+s14 OFF rel=1.00  travel=3446
+s8 ON  v=0.60
+s9 OFF rel=1.00  travel=3499
+s8 OFF rel=1.00  travel=3414
+s8 ON  v=0.63
+s6 ON  v=0.56
+s8 OFF rel=1.00  travel=3449
+s2 ON  v=0.63
+s6 OFF rel=1.00  travel=3829
+s6 ON  v=0.44
+s13 ON  v=0.55
+s1 ON  v=0.34
+s2 OFF rel=0.67  travel=3223
+s6 OFF rel=1.00  travel=3829
+s13 OFF rel=1.00  travel=3563
+s1 OFF rel=1.00  travel=3240
+s1 ON  v=0.51
+s13 ON  v=0.41
+s6 ON  v=0.06
+s12 ON  v=0.52
+s12 OFF rel=0.82  travel=3572
+s13 OFF rel=1.00  travel=3558
+s1 OFF rel=1.00  travel=3235
+s6 OFF rel=1.00  travel=3827
+s13 ON  v=0.58
+s6 ON  v=0.11
+s1 ON  v=0.54
+s1 OFF rel=1.00  travel=3225
+s6 OFF rel=1.00  travel=3822
+s13 OFF rel=1.00  travel=3547
+s10 ON  v=0.01
+s13 ON  v=0.51
+s6 ON  v=0.41
+s1 ON  v=0.05
+s6 OFF rel=1.00  travel=3821
+s1 OFF rel=1.00  travel=3197
+s13 OFF rel=1.00  travel=3549
+s10 OFF rel=1.00  travel=3841
+s23 ON  v=0.48
+s23 OFF rel=0.95  travel=2695
+s25 ON  v=0.58
+s13 ON  v=0.59
+s18 ON  v=0.47
+s22 ON  v=0.53
+s24 ON  v=0.43
+s24 OFF rel=0.55  travel=1358
+s13 OFF rel=1.00  travel=3543
+s25 OFF rel=1.00  travel=2991
+s18 OFF rel=1.00  travel=3432
+s25 ON  v=0.57
+s18 ON  v=0.60
+s13 ON  v=0.59
+s25 OFF rel=1.00  travel=3010
+s13 OFF rel=1.00  travel=3551
+s22 OFF rel=0.49  travel=3201
+s18 OFF rel=0.30  travel=3429
+s25 ON  v=0.61
+s22 ON  v=0.27
+s18 ON  v=0.35
+s13 ON  v=0.59
+s13 OFF rel=1.00  travel=3551
+s18 OFF rel=1.00  travel=3429
+s25 OFF rel=1.00  travel=3011
+s22 OFF rel=1.00  travel=3201
