@@ -846,17 +846,58 @@ static const ModRoute R_FMBOW[] = {
   { SRC_POSITION, DST_AMP,    1.00f, SRC_CONST, CURVE_AUDIO },
 
   // ---- the index, which is this patch's entire timbre ---------------------
-  // A floor, so the quietest playing is not a bare test tone: 0.06 of 600
-  // degrees is 0.63 radians, one weak sideband pair either side. dxpiano's
-  // argument, one notch up because there is no strike here to cover the entry.
-  { SRC_CONST,    DST_FM,     0.06f },
-  // THE GESTURE. Squared rather than linear: the bottom of the travel stays
-  // nearly a pure sine, which is where the note is also quietest, so soft and
-  // pure arrive together the way they do on a real instrument. 0.06 + 0.34 is
-  // 240 degrees of peak deviation at full press, about 4.2 radians — reedy and
-  // strained, with significant partials out to the 11th. Past ~0.45 total it
-  // stops sounding like effort and starts sounding like a bell.
-  { SRC_POSITION, DST_FM,     0.34f, SRC_CONST, CURVE_SQUARE },
+  // SHAPED FOR THE KEY, NOT FOR THE MATHS, and this is the part that had to be
+  // rewritten after playing it. These keys have a stiff spot at about 0.60:
+  // you lean, the spring holds, you push a little harder and it gives way and
+  // drops you at ~0.90. So 0.60..0.90 is not a stretch of travel the player
+  // controls — it is a step that happens TO them — and any route that puts its
+  // steepest slope there converts a mechanical defect into a musical event.
+  //
+  // The first version did exactly that. A squared position route has its
+  // fastest movement at the top, so the pop-through landed 0.63 of an octave of
+  // bandwidth in one lurch, on top of a keyvel spike (below) that fired for the
+  // same reason. reed and bowed feel smoother across the same key because their
+  // brightness route is LINEAR in semitones — no accelerating region for the
+  // step to land in.
+  //
+  // Linear is not enough here though, because an FM index is not a cutoff.
+  // Bandwidth goes as 2(index+1)*fm, so equal steps of index are equal steps of
+  // BANDWIDTH IN HZ, and the ear hears brightness as a ratio: the same 0.1 of
+  // index that doubles the spectrum down low barely widens it up top. Linear
+  // index is therefore already front-loaded. What the key needs is more of
+  // that, so the two routes below are a deliberately CONCAVE pair —
+  //
+  //     index(p) = 0.03 + 0.46p - 0.14p^2
+  //
+  // — a straight line with a squared route subtracted from it. It stays
+  // monotone everywhere (measured slope 0.46 falling to 0.18, no reversal) and
+  // its slope at the top is under half its slope in the middle. Spectral width
+  // in octaves, measured across the two regions, against the patches that
+  // already feel right on this key:
+  //
+  //                    0.15 -> 0.60        0.60 -> 0.90
+  //                    you control this    the key does this to you
+  //     fmbow             +0.74               +0.25
+  //     reed              +1.12               +0.75
+  //     bowed             +1.12               +0.75
+  //
+  // Three times as much timbre lives below the stiff spot as above it, which is
+  // the opposite of the arrangement that made it lurch, and the step itself now
+  // moves a third of what reed's does. That is deliberate overcorrection rather
+  // than parity: adding sidebands is a coarser event than sliding a filter over
+  // harmonics that are already sounding, so the same octave of width buys a
+  // bigger surprise here than it does there. The step is still in the key —
+  // nothing in a patch can remove it — but it now costs about what an ordinary
+  // quarter of a lean costs, and FM_SMOOTH_MS spreads what is left over ~120 ms
+  // so it arrives as a swell rather than as an edge.
+  //
+  // The subtracted route is the knob for this. More of it flattens the top
+  // further (do not exceed half the linear depth, or the curve turns over and
+  // pressing harder starts making it duller); less of it goes back toward the
+  // straight line.
+  { SRC_CONST,    DST_FM,     0.03f },   // a floor: never a bare test tone
+  { SRC_POSITION, DST_FM,     0.46f },   // linear...
+  { SRC_POSITION, DST_FM,    -0.14f, SRC_CONST, CURVE_SQUARE },  // ...bent flat
   // THE BOW. A continuous patch has no velocity by construction — there is no
   // strike to measure — so this is the only thing that can bite. SRC_KEYVEL is
   // how fast the key is moving RIGHT NOW, so it adds partials while the finger
@@ -874,7 +915,34 @@ static const ModRoute R_FMBOW[] = {
   // on a perfectly still key. Squaring costs a real press nothing, because a
   // press is at or near full scale anyway, and takes the noise to 0.04 of
   // itself: under 0.01 of index, which is inaudible.
-  { SRC_KEYVEL,   DST_FM,     0.24f, SRC_CONST, CURVE_SQUARE },
+  //
+  // AND IT HAS TO GET OUT OF THE WAY OF THE STIFF SPOT, which is why it is two
+  // routes rather than one. Squaring makes this fire only on FAST motion, and
+  // the fastest thing that happens on this keyboard is not a bow stroke, it is
+  // the key giving way at 0.60: 0.30 of travel in ~40 ms is 7.5 position
+  // units/s, nearly twice full scale, so it SATURATES this source. No curve can
+  // help — a steeper one discriminates against slow motion, and the give-way is
+  // not slow. Measured, a single flat route collected its whole depth at the
+  // exact instant position jumped: it was not accompanying the lurch, it was
+  // most of it. Even at half the original depth it turned the position step's
+  // +0.25 octave into +0.57 — worse than the shape fix above had just gained.
+  //
+  // What DOES separate the two is where on the key they happen. A bow attack is
+  // a fast move through the SHALLOW end — you are entering the note — while the
+  // give-way only ever happens deep, at 0.60 and below. So the depth is faded
+  // out with position: a plain route minus a via-position route is
+  //
+  //     scrape(p) = 0.16 - 0.14p
+  //
+  // which is 0.13 at the entry, 0.076 by the stiff spot and 0.034 at 0.90.
+  // Measured at full key speed: a deliberate stroke into a new note at 0.20 is
+  // worth 79 degrees of extra deviation, +0.59 octave of width, and reads as a
+  // scrape; the give-way sees the depth falling from 46 degrees to 20 as it
+  // passes through, taking the whole pop-through to +0.35 octave instead of
+  // +0.57. It also happens to be the truer bow model — speed matters most as
+  // the string is caught, less once it is already speaking.
+  { SRC_KEYVEL,   DST_FM,     0.16f, SRC_CONST,    CURVE_SQUARE },
+  { SRC_KEYVEL,   DST_FM,    -0.14f, SRC_POSITION, CURVE_SQUARE },
   // Purer up the keyboard. Phase modulation holds the index constant across the
   // keyboard by construction, so without this every note is the same spectrum
   // transposed — the machine sound. Real instruments thin out on top.
@@ -900,10 +968,10 @@ static const ModRoute R_FMBOW[] = {
   // fmbell needs a keytrack route on the cutoff because its 2.76 ratio throws
   // sidebands past Nyquist on the top octave. This one cannot: the keyboard
   // stops at MIDI 72, and the worst case there — full press, full-speed scrape,
-  // index 0.54 after keytrack has taken its cut — reaches about the 13th
-  // partial, 7.5 kHz. That is a third of Nyquist. There is nothing to fold and
-  // nothing to hide, so the filter sits wide open and static and every bit of
-  // brightness you hear is the index.
+  // breathing at its peak, index 0.233 after keytrack has taken its cut —
+  // reaches 4.1 kHz. That is under a fifth of Nyquist. There is nothing to fold
+  // and nothing to hide, so the filter sits wide open and static and every bit
+  // of brightness you hear is the index.
 };
 
 // ---- the table -----------------------------------------------------------
@@ -1275,14 +1343,11 @@ const Preset PRESET[] = {
 //                          beat — so it is left at zero rather than pretending.
 //                          The chorus in this patch is the RATIO, not detune.
 //   fPeak == fBase 20.0    wide open and static: 2.6 kHz at the bottom key and
-//                          10.5 kHz at the top. Up top that is 3 kHz clear of
-//                          anything the index can generate, so the filter is
-//                          doing nothing at all; at the bottom key it lands
-//                          just above the 2.4 kHz a full press reaches there,
-//                          which rounds off the hardest low notes very
-//                          slightly. That asymmetry is the right way round —
-//                          low notes are where a dense sideband stack turns
-//                          into buzz. See the last note in R_FMBOW.
+//                          10.5 kHz at the top, against worst-case partials of
+//                          1.6 kHz and 4.1 kHz. It is clear of the sound
+//                          everywhere, which is the point — it is a guard
+//                          against a route being retuned later, not a voice.
+//                          See the last note in R_FMBOW.
 //   res 0.70               flat. A resonant peak is a formant, and an FM
 //                          spectrum is already fully specified.
 //   fTau 400               unused. Nothing routes SRC_FILTENV and the cutoff

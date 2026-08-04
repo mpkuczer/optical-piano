@@ -63,6 +63,32 @@ static const float AMP_SMOOTH_MS = 12.0f;
 // blunts the transient, but the SVF is just as sensitive to a stepping
 // coefficient as the oscillator is to a stepping amplitude.
 static const float CUT_SMOOTH_MS = 6.0f;
+// The FM index, and ONLY on continuous patches — see the guard in synthUpdate.
+//
+// A struck FM patch must not have this. dxpiano and fmbell exist for a
+// transient: the index falls from its peak in the first tens of milliseconds
+// and that fall IS the sound, so a pole across it is not smoothing, it is
+// deleting the patch.
+//
+// A continuous patch has no strike to protect, and it has a problem the struck
+// ones do not: the index is following a finger on a mechanical key, and a key
+// with a stiff spot does not move smoothly through it. It gives way. The
+// measured jump on this keyboard is around 0.30 of travel — 0.60 to 0.90 —
+// arriving in the time it takes a finger to lose a fight with a spring, which
+// is far faster than any gesture the player intended.
+//
+// Every other destination already survives that, because every other
+// destination is smoothed: amplitude at 12 ms, cutoff at 6 ms in log space, on
+// top of Gesture.cpp's 8 ms on position itself. The index was the one value
+// written raw, which is why leaning into fmbow lurched where the same jump
+// under reed or bowed only swells.
+//
+// 35 ms is deliberately much longer than the other two. It is not fighting
+// jitter — the routes' own curves do that — it is turning a 40 ms mechanical
+// event into a ~120 ms musical one. Lower it toward 15 if the patch feels
+// laggy under a deliberate slow lean; raise it toward 60 if the pop-through is
+// still audible as an event rather than as a swell.
+static const float FM_SMOOTH_MS = 35.0f;
 
 // Gain staging. Deliberately conservative: resonant filters add gain around
 // the cutoff and the effects add more, so the raw voice sum needs headroom
@@ -176,6 +202,7 @@ static uint32_t voiceOffMs[NUM_VOICES];
 static float    voiceAmpSmA[NUM_VOICES];
 static float    voiceAmpSmB[NUM_VOICES];
 static float    voiceCutSm[NUM_VOICES];
+static float    voiceFmSm[NUM_VOICES];
 static uint32_t rngState = 0x12345678;
 
 // Cheap deterministic RNG. Per-note randomness is how analog drift is faked:
@@ -533,6 +560,11 @@ void synthNoteOn(int row, int col, float velocity) {
   voiceAmpSmA[i] = amp;
   voiceAmpSmB[i] = amp * bLevel0;
   voiceCutSm[i]  = cut0;
+  // Seeded at the modulated value like the others, so a continuous FM note
+  // begins at the timbre its position already implies instead of ramping up to
+  // it over the first 35 ms — which would be an index envelope, i.e. exactly
+  // the struck behaviour this patch family is defined by not having.
+  voiceFmSm[i]   = fmIdx0;
   vfilt[i].resonance(res0);
   vfilt[i].frequency(cut0);
   // A continuous instrument must not have an attack shape of its own: any
@@ -651,12 +683,23 @@ void synthUpdate() {
     oscB[i].amplitude(voiceAmpSmB[i]);
     if (fmOn) {
       oscF[i].amplitude(voiceAmpSmA[i]);
-      // The INDEX is not smoothed by kAmp. It is a timbre control, not a level,
-      // and the whole point of an FM electric piano is that the index falls
-      // fast at the start of the note — smoothing it with the amplitude pole
-      // would blunt exactly the transient the patch exists for. Gesture.cpp
-      // and the filtEnv already provide whatever smoothing it needs.
-      oscM[i].amplitude(clampf(mod[DST_FM], 0.0f, 1.0f));
+      // The INDEX is never smoothed by kAmp. It is a timbre control, not a
+      // level, and the whole point of an FM electric piano is that the index
+      // falls fast at the start of the note — smoothing it with the amplitude
+      // pole would blunt exactly the transient the patch exists for.
+      //
+      // A CONTINUOUS patch has no such transient and gets its own, much slower
+      // pole instead: there the index is a finger on a sprung key rather than
+      // an envelope, and the key is not smooth. See FM_SMOOTH_MS.
+      float fmIdx = clampf(mod[DST_FM], 0.0f, 1.0f);
+      if (p.articulation == ART_CONTINUOUS) {
+        const float kFm = (float)UPDATE_MS / (FM_SMOOTH_MS + (float)UPDATE_MS);
+        voiceFmSm[i] += kFm * (fmIdx - voiceFmSm[i]);
+        fmIdx = voiceFmSm[i];
+      } else {
+        voiceFmSm[i] = fmIdx;
+      }
+      oscM[i].amplitude(fmIdx);
     } else {
       // Silenced unconditionally, not just on the way out. Switching preset
       // does NOT stop the notes already sounding, so a voice struck under an
@@ -666,6 +709,10 @@ void synthUpdate() {
       // gain staging budgeted for one, until that note finally releases.
       oscF[i].amplitude(0.0f);
       oscM[i].amplitude(0.0f);
+      // ...and the smoother with them, for the mirror-image case: a note
+      // sounding under a non-FM patch that is switched INTO one mid-note would
+      // otherwise resume from whatever index the last FM patch left here.
+      voiceFmSm[i] = 0.0f;
     }
 
     // --- apply: pitch (cents on both) and detune (cents on B only) --------
