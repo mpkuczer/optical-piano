@@ -37,6 +37,10 @@ static const float    TAU_VEL_MIN = 0.75f;    // soft hits decay faster
 static const float    TAU_VEL_MAX = 1.35f;    // hard hits ring longer
 static const float    FILT_MIN_HZ = 120.0f;
 static const float    FILT_MAX_HZ = 15000.0f;
+// SRC_ATTACK's time constant when a preset does not state one (Preset::atkMs
+// zero-fills). 90 ms is a chiff: clearly a separate event at the start of the
+// note, over before anyone would call it part of the sustain.
+static const float    ATTACK_TAU_DEFAULT_MS = 90.0f;
 
 // ---- anti-zipper ----------------------------------------------------------
 // AudioSynthWaveform::amplitude() and AudioFilterStateVariable::frequency()
@@ -181,6 +185,7 @@ static float    voiceMixB[NUM_VOICES];
 static float    voiceCutPeak[NUM_VOICES];
 static float    voiceCutBase[NUM_VOICES];
 static float    voiceFTau[NUM_VOICES];
+static float    voiceAtkTau[NUM_VOICES]; // ms, for SRC_ATTACK
 static float    voiceFA[NUM_VOICES];    // base pitch, before modulation
 static float    voiceFB[NUM_VOICES];
 static float    voiceVel[NUM_VOICES];   // 0..1, for SRC_VELOCITY
@@ -364,6 +369,9 @@ void synthBegin() {
     voicePress[i]    = 0.0f;
     voiceReleased[i] = false;
     voiceRelease[i]  = PRESET[0].r;
+    // Never zero: it is a divisor, and a voice that somehow reaches synthUpdate
+    // without a note-on would produce a NaN amplitude rather than silence.
+    voiceAtkTau[i]   = ATTACK_TAU_DEFAULT_MS;
   }
   for (int m = 0; m < 7; m++)
     for (int ch = 0; ch < 4; ch++) mix1[m].gain(ch, MIX1_GAIN);
@@ -463,6 +471,7 @@ void synthNoteOn(int row, int col, float velocity) {
   voiceCutPeak[i]  = peak;
   voiceCutBase[i]  = base;
   voiceFTau[i]     = p.fTau;
+  voiceAtkTau[i]   = (p.atkMs > 0.0f) ? p.atkMs : ATTACK_TAU_DEFAULT_MS;
   voiceOnMs[i]     = millis();
   voiceDecaying[i] = true;
 
@@ -498,6 +507,11 @@ void synthNoteOn(int row, int col, float velocity) {
     ctx.keytrack = voiceKeytrk[i];
     ctx.ampEnv   = 1.0f;
     ctx.filtEnv  = 1.0f;
+    // This IS the instant of the attack, so the onset window is wide open.
+    // Seeding it at anything else would make the first synthUpdate a step
+    // upward into the chiff — the one destination where that is most audible,
+    // since the chiff is the loudest the note ever gets.
+    ctx.attack   = 1.0f;
     ctx.ageMs    = 0.0f;
     ctx.randomv  = voiceRand[i];
     ctx.pressure = voicePress[i];
@@ -650,6 +664,7 @@ void synthUpdate() {
     ctx.keytrack = voiceKeytrk[i];
     ctx.ampEnv   = ampEnv;
     ctx.filtEnv  = filtEnv;
+    ctx.attack   = expf(-dt / voiceAtkTau[i]);
     ctx.ageMs    = dt;
     ctx.randomv  = voiceRand[i];
     ctx.pressure = voicePress[i];
@@ -779,6 +794,7 @@ void presetDumpRoutes() {
     case ART_STRUCK:     Serial.println("STRUCK (velocity from flight time)");         break;
     case ART_GATED:      Serial.println("GATED (no velocity, no held expression)");    break;
     case ART_PLUCKED:    Serial.println("PLUCKED (velocity discarded, held expression)"); break;
+    case ART_TRIGGERED:  Serial.println("TRIGGERED (on/off switch, velocity floored, held expression)"); break;
     default:             Serial.println("?");                                          break;
   }
   if (q.nRoutes == 0 || q.routes == nullptr) {

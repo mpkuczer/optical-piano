@@ -53,6 +53,26 @@ enum ModSource : uint8_t {
                    //   a key held deep and a key sweeping through the same
                    //   depth read identically on SRC_POSITION and opposite
                    //   here. A bow is this: stop moving and the note dies.
+  SRC_ATTACK,      // 1.0 at note-on, decaying to 0 over the preset's atkMs.
+                   //   An ONSET window, and the only source that is one.
+                   //
+                   //   It exists because "velocity shapes the attack but not
+                   //   the note" was inexpressible. SRC_VELOCITY is constant
+                   //   for the whole note, so routing it to DST_AMP moves the
+                   //   level a held note settles at — which is exactly what an
+                   //   organ must not do. Routed as
+                   //       { SRC_ATTACK, DST_AMP, depth, via SRC_VELOCITY }
+                   //   the bump is velocity-sized and then GONE, leaving the
+                   //   body at whatever the constant routes say. That is a
+                   //   chiff, a key click, a hammer thump: the part of a
+                   //   strike that belongs to the beginning of the note.
+                   //
+                   //   SRC_FILTENV was the only decaying source before this
+                   //   and is the wrong tool — its time constant is fTau, the
+                   //   filter's own sweep, so borrowing it for amplitude
+                   //   welds the two together and neither can be tuned again.
+                   //   Nothing stops a patch from using both; they are now
+                   //   separate numbers.
   NUM_SOURCES
 };
 
@@ -153,6 +173,7 @@ struct ModContext {
   float pressure;    // 0..1 relative to where this note landed
   float position;    // 0..1 absolute key depth
   float keyvel;      // -1..1 key speed, positive descending
+  float attack;      // 1..0 onset window, decayed from the note's age
   float lfoPhase;    // 0..1 CYCLES of head start for this voice's LFOs.
                      //   Without it, every note in a chord struck together
                      //   wobbles in lockstep, which sounds like one machine

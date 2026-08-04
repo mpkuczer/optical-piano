@@ -61,6 +61,7 @@ static float clampf(float v, float lo, float hi) {
 
 void gestureInit(GestureState &g) {
   g.phase = GP_IDLE;
+  g.sounding = false;
   g.noteArt = ART_CONTINUOUS;
   g.noteOnMs = 0.0f;
   g.prevPos = 0.0f; g.prevMs = 0.0f; g.havePrev = false;
@@ -70,7 +71,8 @@ void gestureInit(GestureState &g) {
   g.restPos = 0.0f; g.haveRest = false; g.noteMaxPos = 0.0f;
 }
 
-bool gestureIdle(const GestureState &g) { return g.phase == GP_IDLE; }
+bool gestureIdle(const GestureState &g)     { return g.phase == GP_IDLE; }
+bool gestureSounding(const GestureState &g) { return g.sounding; }
 
 float gestureKeyVel(const GestureState &g, const GestureConfig &c) {
   float full = c.keyVelFull > 0.0f ? c.keyVelFull : 4.0f;
@@ -136,21 +138,33 @@ static void updatePressure(GestureState &g, const GestureConfig &c,
 static void beginNote(GestureState &g, GestureEvent &e, float vel, float nowMs,
                       uint8_t art) {
   g.noteArt = art;
+  g.sounding = true;
   g.strike = vel;
   g.noteOnMs = nowMs;
   g.haveRest = false; g.noteMaxPos = 0.0f; g.pressure = 0.0f;
   g.overCount = 0; g.underCount = 0;
-  g.phase = GP_SOUNDING;
+  g.phase = GP_KEYDOWN;
   e.noteOn = true; e.velocity = vel;
 }
 
-// No longer takes the config: with width gone there is nothing left to learn
-// at note end. Ending a note is now pure teardown.
+// Ending a note is pure teardown, and it no longer touches the phase — under a
+// latch the note ends halfway through a key press, with the key still down and
+// the phase describing the key. Callers set the phase because only they know
+// where the key is.
 static void endNote(GestureState &g, GestureEvent &e, float releaseVel) {
-  g.phase = GP_IDLE;
+  g.sounding = false;
   g.pressure = 0.0f;
   g.overCount = 0; g.underCount = 0;
-  e.noteOff = true; e.releaseVel = releaseVel; e.noteEnded = true;
+  e.noteOff = true; e.releaseVel = releaseVel;
+}
+
+// The key has come back to rest. Whether that ends a note depends on the
+// articulation; whether calibration wants to hear about it does not.
+static void keyUp(GestureState &g, GestureEvent &e) {
+  g.phase = GP_IDLE;
+  g.haveRest = false; g.noteMaxPos = 0.0f; g.pressure = 0.0f;
+  g.overCount = 0; g.underCount = 0;
+  e.noteEnded = true;
 }
 
 GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
@@ -180,6 +194,12 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
   const float onLv  = triggered ? c.onPos : c.contOn;
   const bool  heldTriggered = (g.noteArt != ART_CONTINUOUS);
   const float offLv = heldTriggered ? c.offPos : c.contOff;
+  // A latch is decided by the CURRENT articulation at the moment the key
+  // crosses, not by the sounding note's. Both agree except across a preset
+  // change, and a preset change silences everything first (scannerAllNotesOff)
+  // — which it now must, since otherwise a latched note could outlive the only
+  // articulation that knows how to switch it off.
+  const bool latching = (art == ART_TRIGGERED);
 
   switch (g.phase) {
     case GP_IDLE:
@@ -203,7 +223,24 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
       break;
 
     case GP_DESCENDING:
-      if (nowMs - g.velStartMs > c.maxDescentMs) { g.phase = GP_IDLE; break; }
+      // A stalled descent is abandoned and IMMEDIATELY re-entered from
+      // wherever the key now sits, because pos is still past velStart. So the
+      // watchdog does not lose the note — it re-times it, from the moment it
+      // fired rather than from the start of the press. On a hammer that is the
+      // right trade: a timer left running across a long hesitation would make
+      // a genuinely fast final strike read as a crawl.
+      //
+      // On a switch it destroys monotonicity, which is the property a switch
+      // is FOR. Measured, hesitating at 30% depth and then pressing through:
+      //     pause    500 ms      700 ms
+      //     STRUCK    0.000       0.213
+      // The slower gesture reads four times harder, because 700 ms crossed the
+      // boundary and 500 ms did not. TRIGGERED reads 0.160 for both. See
+      // test_pipeline.cpp, "a slower press never reads harder than a faster
+      // one" — the numbers above are that test's output.
+      if (art != ART_TRIGGERED && nowMs - g.velStartMs > c.maxDescentMs) {
+        g.phase = GP_IDLE; break;
+      }
       if (pos > onLv) {
         float onMs = (g.havePrev && g.prevPos <= onLv)
                    ? crossingTime(g.prevPos, g.prevMs, pos, nowMs, onLv)
@@ -213,15 +250,42 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
         // PLUCKED and GATED discard the measurement on purpose: a plectrum
         // plucks identically however hard the key is hit, and an organ pipe
         // either speaks or does not.
-        float v = (art == ART_STRUCK) ? velocityFromFlight(c, flight) : 0.5f;
-        beginNote(g, e, v, nowMs, art);
+        //
+        // TRIGGERED keeps it, but CLAMPED to the slow end of the map first.
+        // Past velSlowMs the map keeps extrapolating downward and clamps at
+        // zero, which is right for STRUCK — a hammer that never really moved
+        // makes no sound — and wrong for a switch, where it would mean a note
+        // that triggered and then stayed silent. The clamp makes velAtSlow the
+        // floor, so the softest possible press still speaks; the whole range
+        // above it is still there for the onset to use.
+        float v = 0.5f;
+        if (art == ART_STRUCK) {
+          v = velocityFromFlight(c, flight);
+        } else if (art == ART_TRIGGERED) {
+          v = velocityFromFlight(c, flight > c.velSlowMs ? c.velSlowMs : flight);
+        }
+        if (latching && g.sounding) {
+          // THE SECOND PRESS. Same crossing, same measurement, opposite
+          // meaning. A latch has no key release to time, so this press is the
+          // only thing left that can say how the note should stop, and it says
+          // it the same way the first press said how the note should start.
+          endNote(g, e, v);
+          g.phase = GP_KEYDOWN;      // the key is down; it has just not started
+                                     //   anything. Waiting here is what stops
+                                     //   one press toggling twice.
+        } else {
+          beginNote(g, e, v, nowMs, art);
+        }
       } else if (pos < c.velStart - c.retreatHyst) {
         g.phase = GP_IDLE;               // half press, withdrawn
       }
       break;
 
-    case GP_SOUNDING:
-      // GATED ignores everything after the start by definition.
+    case GP_KEYDOWN:
+      // GATED ignores everything after the start by definition. TRIGGERED does
+      // not, but under a latch this only runs while the key is actually down —
+      // which is the press that started the note, up until the finger leaves.
+      // See Gesture.h on why a latching patch wants SRC_POSITION instead.
       if (g.noteArt != ART_GATED)
         updatePressure(g, c, pos, nowMs - g.noteOnMs, dtMs);
       // The same persistence on the way out, so a downward transient cannot
@@ -232,10 +296,21 @@ GestureEvent gestureUpdate(GestureState &g, const GestureConfig &c,
         g.underCount = 0;
       }
       if (g.underCount >= (heldTriggered ? 1 : c.offSamples)) {
-        // Release speed: how fast the key came back up, in position per
-        // second. Negative velocity means rising.
-        float rel = clampf(-g.vel / 4.0f, 0.0f, 1.0f);
-        endNote(g, e, rel);
+        if (latching) {
+          // THE KEY LEAVING IS NOT AN EVENT. Whatever this press did, it did
+          // at the crossing; the finger coming off is just the finger coming
+          // off. Calibration still hears about it — that is what keyUp emits —
+          // because a completed press is exactly when a key has finished
+          // measuring its own bottom, and that has never had anything to do
+          // with whether a note is sounding.
+          keyUp(g, e);
+        } else {
+          // Release speed: how fast the key came back up, in position per
+          // second. Negative velocity means rising.
+          float rel = clampf(-g.vel / 4.0f, 0.0f, 1.0f);
+          endNote(g, e, rel);
+          keyUp(g, e);
+        }
       }
       break;
   }

@@ -23,6 +23,10 @@
 // SERIAL COMMANDS
 //   0-9  select preset        n / p  next / previous
 //   l    list presets         R      dump the active preset's routes
+//   o    ALL NOTES OFF. Matters under ART_TRIGGERED, where notes latch: a
+//        latched note has no key holding it and no timeout, so this and a
+//        preset change are the only things besides pressing the key again
+//        that can stop one.
 //   b    recalibrate (hands off the keys)
 //   r    forget learned travel
 //   L    travel learning on/off. On to teach the keys, off to play: while it
@@ -105,6 +109,8 @@ static void handleCommand(char ch) {
     case 'p': selectPresetAndAudition(presetCurrent() - 1); break;
     case 'l': presetList();              break;
     case 'R': presetDumpRoutes();        break;
+    case 'o': scannerAllNotesOff();
+              Serial.println("# all notes off");  break;
     case 'b': scannerCalibrate();        break;
     case 'r': scannerResetCalibration(); break;
     case 'L': scannerSetLearn(!scannerLearn());
@@ -148,7 +154,7 @@ void setup() {
 #endif
 
   Serial.println("# READY");
-  Serial.println("# 0-9 preset  n/p next/prev  l list  R routes  b recal  t trace  w keys");
+  Serial.println("# 0-9 preset  n/p next/prev  l list  R routes  b recal  t trace  w keys  o notes off");
   Serial.println("# L toggles travel learning — play each key to its bottom, then turn it off");
   presetList();
 }

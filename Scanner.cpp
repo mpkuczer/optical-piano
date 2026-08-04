@@ -156,10 +156,17 @@ static void seedFromNeighbours() {
 // sounding note carries its old rules to the grave (see GestureState::noteArt)
 // — but a chord left hanging across a patch change is confusing regardless, so
 // the change starts from silence.
+//
+// Under ART_TRIGGERED this stopped being a courtesy and became the safety net.
+// A latched note has no key holding it up and no timeout: nothing else in the
+// system will ever end it except the player pressing that key again. So the
+// test cannot be "is a key down" any more — a latched note's key is at rest,
+// looks exactly like the twenty-four that are not sounding, and would be
+// skipped. Ask about the NOTE.
 void scannerAllNotesOff() {
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++)
-      if (gest[r][c].phase != GP_IDLE) {
+      if (gestureSounding(gest[r][c]) || gest[r][c].phase != GP_IDLE) {
         synthNoteOff(r, c, 0.5f);
 #if SEND_USB_MIDI
         usbMIDI.sendNoteOff(MIDI_NOTE[r][c], 0, 1);

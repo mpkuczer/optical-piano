@@ -55,7 +55,7 @@ void diagServiceTrace() {
   bool any = false;
   for (int r = 0; r < 5 && !any; r++)
     for (int c = 0; c < 5 && !any; c++)
-      if (calKey[r][c].position > TRACE_FLOOR || gest[r][c].phase == GP_SOUNDING)
+      if (calKey[r][c].position > TRACE_FLOOR || gestureSounding(gest[r][c]))
         any = true;
   if (!any) return;
   traceNext = now + 60;
@@ -64,7 +64,10 @@ void diagServiceTrace() {
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const CalKey &k = calKey[r][c];
-      bool sounding = gest[r][c].phase == GP_SOUNDING;
+      // A latched note's key sits at rest, so its position is under the floor
+      // and the star is the ONLY thing that reports it. Reading the sound off
+      // the phase used to be the same question; it is not any more.
+      bool sounding = gestureSounding(gest[r][c]);
       if (k.position <= TRACE_FLOOR && !sounding) continue;
       Serial.print("s");   Serial.print(r * 5 + c + 1);
       Serial.print(sounding ? "*=" : "=");

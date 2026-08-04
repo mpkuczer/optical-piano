@@ -112,6 +112,21 @@ struct Preset {
   // patch keeps its timbre across the keyboard instead of getting brighter as
   // you play up.
   float fmRatio;
+
+  // ---- onset window --------------------------------------------------------
+  // Time constant of SRC_ATTACK, in ms: how long the "this note is still
+  // beginning" window lasts. Zero means ATTACK_TAU_DEFAULT_MS (Synth.cpp), so
+  // every existing row is unaffected — a patch with no SRC_ATTACK route never
+  // reads it either way.
+  //
+  // This is a THIRD envelope time, alongside tau (amplitude) and fTau (filter),
+  // and it is separate from both on purpose. A chiff is not the note's decay
+  // and not its filter sweep; on an organ-like patch the other two are 1e9 and
+  // static, and this is the only thing that moves.
+  //   20-40    key click. A transient, barely a sound of its own.
+  //   80-150   chiff. The pipe speaking before it settles.
+  //   300+     a swell into the body rather than a mark at its start.
+  float atkMs;
 };
 
 extern const Preset PRESET[];

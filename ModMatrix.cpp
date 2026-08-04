@@ -98,6 +98,7 @@ static float sourceValue(uint8_t src, const ModContext &c,
     case SRC_PRESSURE: return c.pressure;
     case SRC_POSITION: return c.position;
     case SRC_KEYVEL:   return c.keyvel;
+    case SRC_ATTACK:   return c.attack;
     default:           return 0.0f;
   }
 }
@@ -136,7 +137,7 @@ void modEvaluate(const ModContext &ctx,
 static const char *SRC_NAMES[] = {
   "const", "velocity", "keytrack", "ampenv", "filtenv",
   "lfo1", "lfo2", "lfo1uni", "random", "noteage", "pressure", "position",
-  "keyvel"
+  "keyvel", "attack"
 };
 static const char *DST_NAMES[] = {
   "pitch", "detune", "cutoff", "amp", "pwm", "res", "oscB", "fm"
