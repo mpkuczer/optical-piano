@@ -138,6 +138,60 @@ enum ModCurve : uint8_t {
   CURVE_AUDIO,       // x^1.8 — the volume-pedal curve
   CURVE_SQRT,        // x^0.5 — fast start, gentle top
   CURVE_LATE,        // x^3   — almost nothing until you really commit
+  CURVE_DETENT,      // A STOP, not a taper, and the only curve here that is
+                     //   not a power law. Flat at zero up to an edge, a fast
+                     //   smootherstep crossing from the edge to full travel,
+                     //   and flat again at the top — the shape of a mechanism
+                     //   with a detent in it rather than of a fader.
+                     //
+                     //   Every other curve is monotonic with a non-zero slope
+                     //   almost everywhere, which is exactly right for a
+                     //   filter and exactly wrong for pitch. A taper on
+                     //   DST_CUTOFF means a finger that drifts changes the
+                     //   colour slightly; the same taper on DST_PITCH means a
+                     //   finger that drifts is OUT OF TUNE, and no amount of
+                     //   choosing the exponent fixes that, because the whole
+                     //   family has the property that every position maps to
+                     //   a different pitch. What a bend needs is the opposite:
+                     //   most positions mapping to the SAME pitch, with the
+                     //   interesting part crossed quickly.
+                     //
+                     //   `shape` IS THE EDGE HERE, NOT AN EXPONENT — a
+                     //   position in 0..1 where the crossing begins — and
+                     //   `span` is how much travel the crossing takes, with
+                     //   everything above edge+span being the second flat.
+                     //   This is the one place shape does not mean a power,
+                     //   and it is read even though the rule everywhere else
+                     //   is "shape overrides curve"; a detent with no edge is
+                     //   not a detent. Out of range (<=0 or >=1) falls back
+                     //   to 0.5.
+                     //
+                     //   TWO NUMBERS, NOT ONE, and the second is not a
+                     //   refinement. Edge alone forces the crossing to run out
+                     //   to full travel, which puts the far flat at the very
+                     //   bottom of the key and nowhere else. The patch that
+                     //   asked for this curve needs the opposite — the stable
+                     //   pitch occupying the whole DEEP HALF of the key, from
+                     //   0.60 down, because that is where a hand holding a
+                     //   chord actually rests. That flat has to start where the
+                     //   crossing ends, and only a width can say where that is.
+                     //
+                     //   BOTH FLATS ARE EXACT, which matters more than it
+                     //   looks: below the edge the curve returns 0 and above
+                     //   edge+span it returns 1 with no rounding, so a pair of
+                     //   routes with equal and opposite depths CANCEL exactly.
+                     //   That is how a patch expresses "flat by this much until
+                     //   the finger arrives, then the unmodulated pitch and not
+                     //   something very near it".
+                     //
+                     //   Smootherstep (6t^5 - 15t^4 + 10t^3) rather than a
+                     //   straight ramp because the first and second
+                     //   derivatives both vanish at BOTH ends: the note does
+                     //   not lurch as the finger enters the crossing, and —
+                     //   the half that matters — it settles rather than
+                     //   arrives, so a finger holding near the bottom of the
+                     //   key is holding a stable interval instead of riding
+                     //   the steepest part of a curve.
   NUM_CURVES
 };
 
@@ -162,7 +216,18 @@ struct ModRoute {
   //
   // Zero means "use curve", so every existing route table is unaffected —
   // the same append-a-defaulted-field trick as `via` and `curve` before it.
+  //
+  // ONE EXCEPTION, and it is CURVE_DETENT: that curve reads this field as the
+  // EDGE of its dead zone rather than as an exponent, and reads it whether or
+  // not it is zero. The override rule exists so a route can ask for a power
+  // the enum does not carry; a detent is not a power, so there is nothing for
+  // it to override.
   float   shape;
+  // CURVE_DETENT only: how much travel the crossing takes, starting at
+  // `shape`. Zero — which is what every route table that predates this field
+  // leaves here — means "run to full travel", the one-breakpoint behaviour, so
+  // nothing existing changes. Same append-a-defaulted-field trick again.
+  float   span;
 };
 
 // ---- LFO -----------------------------------------------------------------

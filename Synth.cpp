@@ -1055,8 +1055,16 @@ void presetDumpRoutes() {
     if (m.via != SRC_CONST) {
       Serial.print("  via "); Serial.print(modSourceName(m.via));
     }
-    // shape overrides curve, so report whichever is actually in force.
-    if (m.shape > 0.0f) {
+    // shape overrides curve, so report whichever is actually in force — except
+    // under CURVE_DETENT, where shape is the detent EDGE and not an exponent.
+    // Printing "x^0.80" for a bend that is flat below 0.80 is worse than
+    // printing nothing: it describes the opposite shape.
+    if (m.curve == CURVE_DETENT) {
+      float edge = (m.shape > 0.0f && m.shape < 1.0f) ? m.shape : 0.5f;
+      float end  = edge + ((m.span > 0.0f) ? m.span : (1.0f - edge));
+      Serial.print("  detent flat<"); Serial.print(edge, 2);
+      Serial.print(" cross->");       Serial.print(end > 1.0f ? 1.0f : end, 2);
+    } else if (m.shape > 0.0f) {
       Serial.print("  shape x^"); Serial.print(m.shape, 2);
     } else if (m.curve != CURVE_LINEAR) {
       Serial.print("  curve "); Serial.print(m.curve);

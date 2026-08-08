@@ -315,6 +315,176 @@ static const ModRoute R_OBIE[] = {
   { SRC_POSITION, DST_CUTOFF, 14.0f, SRC_CONST, CURVE_LINEAR, 4.0f },
 };
 
+// OBIE TIMBRE, CONTINUOUS GESTURE — the same operation strbow performs on
+// strings, done to the patch above. Two full detuned saws, the same 5 Hz
+// vibrato, the same drive and reverb; what changes is that nothing is struck.
+// The note begins when the key leaves rest and every bit of its loudness,
+// brightness and resonance is where the finger is holding.
+//
+// FIRST VERSION OF THIS PATCH WAS DULL AND SOFT-EDGED, and both faults came
+// from reading obie's row instead of obie's ARITHMETIC. Worth writing down,
+// because it is a trap any struck->continuous conversion in this library can
+// fall into:
+//
+//   OBIE NEVER PLAYS AT ITS fBase. The row says 4.0x, but every note also
+//   carries { SRC_VELOCITY, DST_CUTOFF, 16 }, and velocity under ART_STRUCK is
+//   never zero — an ordinary hit is 0.6..0.9, which is 10..14 semitones on top.
+//   Its real settled brightness is 7.3x .. 9.2x, and 4.0x is a number the patch
+//   cannot reach. Copying it as the floor of a continuous version, where there
+//   is no velocity route to add anything, lands two octaves below the sound
+//   being copied. Multiply the row by the routes before believing it.
+//
+//   AND OBIE IS MOSTLY A TRANSIENT. fPeak 15x with fTau 650 ms means the first
+//   half-second of every note sits at 27x .. 35x with the same velocity term on
+//   top of it. That is the bright edge the ear identifies the patch by, and
+//   dropping it in the name of "a continuous patch draws its own envelope" threw
+//   away the articulation along with the automatic sweep.
+//
+// So what the struck version does is inherited rather than deleted, and the
+// distinction that matters is AUTOMATIC versus GATED:
+//
+//   VEL_TO_AMP            gone, and this one really is deleted.
+//                         ART_CONTINUOUS hands the matrix a constant 0.5
+//                         velocity (Gesture.cpp), so it is a fixed trim
+//                         wearing an expressive name — R_SARANGI's argument.
+//   velocity -> cutoff    gone as a route, but NOT as brightness: its ~11
+//                         semitones move into the row's fBase, which is why
+//                         that reads 5.0 and not obie's 4.0. See the row.
+//   fPeak 15 -> fBase 4   stays OFF the row. An engine sweep runs on every
+//                         note whatever the hand does, and against a finger
+//                         that is drawing its own onset that is a second
+//                         envelope with an opinion. fPeak == fBase, as every
+//                         continuous patch in this library has.
+//   ...but the bloom      comes back as { SRC_KEYVEL, DST_CUTOFF, via
+//                         SRC_ATTACK } below, which is the same shape with the
+//                         hand in charge of whether it happens at all. THAT is
+//                         the sharp articulation: stab the key and the note
+//                         arrives with obie's edge on it; slide into the same
+//                         depth and it swells with none.
+//   position ^4 -> cutoff replaced by a LINEAR 30. Under ART_STRUCK position
+//                         was a SECOND opinion about brightness stacked on
+//                         velocity's, so an exponent that kept it inert until
+//                         the last third was exactly right. Here it is the
+//                         ONLY opinion, and cutoff depth is in semitones,
+//                         which are already log frequency — the reed/bowed/vox
+//                         result. Shaped, the bottom two thirds of the key
+//                         would be silent AND colourless at once.
+//
+// What the finger gets, with the row's fBase 5.0x and res 1.20 underneath.
+// Read the last row as the sharpness: it is what a stabbed key adds on top of
+// the column it lands in, decaying over atkMs (260 ms), and a slid key gets
+// none of it.
+//
+//     position   0.15    0.30    0.50    0.75    1.00
+//     gain       0.00    0.08    0.26    0.56    0.97
+//     cutoff     6.5x    8.4x   11.9x   18.3x   28.3x
+//     res        1.21    1.24    1.30    1.43    1.60
+//     vibrato     0.0     0.4     1.8     5.9    14.0  cents
+//     stab      +22 st, i.e. x3.6 on the cutoff above and +0.22 of gain
+//
+// Which puts obie's own numbers where a hand can reach them: its settled 7.3x
+// is a third of the way down this key, and its 27x attack peak is what the
+// bottom of the key holds INDEFINITELY — a brightness the struck patch can only
+// pass through on its way down.
+//
+// THE VIBRATO IS OBIE'S OWN ROUTE, UNCHANGED, and it is the reason this patch
+// is worth having next to swell rather than being a recolour of it. x^3 on
+// position means the wobble does not exist for two thirds of the travel and
+// then arrives, at full depth, exactly where the note is also loudest and
+// brightest — one finger drawing a crescendo that grows a vibrato at the top
+// of it. Under ART_STRUCK that shape was expression added to a note the hammer
+// had already decided; here it is the note.
+static const ModRoute R_OBIESW[] = {
+  // reed's and vox's pair, not swell's: -1.033 is unity plus contOn^1.8
+  // (0.150^1.8 = 0.033), so the gain crosses ZERO at the moment the note starts
+  // and the patch speaks out of silence instead of switching on. Recompute it
+  // as contOn^1.8 if that threshold moves.
+  //
+  // x^1.8 RATHER THAN swell's x^2.2, and it is part of the same complaint. A
+  // steeper taper is quieter for longer, so the patch demanded most of the key
+  // before it was properly there — and the top of the key is exactly where the
+  // vibrato route arrives, so "play it loud" and "play it wobbling" had
+  // collapsed into one position. 1.8 is the shallowest exponent the noise
+  // argument allows (see R_SWELL: slope multiplies sensor jitter), and it puts
+  // a quarter of full level at half travel instead of a fifth.
+  { SRC_CONST,    DST_AMP,   -1.033f },
+  { SRC_POSITION, DST_AMP,    1.00f, SRC_CONST, CURVE_AUDIO },
+  { SRC_POSITION, DST_CUTOFF, 30.0f },
+  // ================= THE ARTICULATION, AND IT IS ONE ROUTE ==================
+  // KEY SPEED, WINDOWED BY THE ONSET. This is obie's fPeak sweep rebuilt out of
+  // the two things a continuous patch does have: how fast the finger was moving
+  // and how long ago the note started. 22 semitones is x3.6 on whatever the
+  // position route has already opened, decaying with atkMs — near enough obie's
+  // 15/4 ratio, and gated on the gesture rather than fired automatically.
+  //
+  // WHY IT IS NOT SIMPLY fPeak. An engine sweep happens on every note however
+  // the note was begun, which under ART_CONTINUOUS means a finger sliding in
+  // gently still gets a bright stab it did not ask for. Through the matrix the
+  // hand decides: keyVelFull is 4.0 units of travel per second (Gesture.cpp), so
+  // any ordinary press saturates SRC_KEYVEL at 1.0 and gets the whole 22, while
+  // a deliberate half-second slide sits near 0.3 and — squared — keeps 9% of it.
+  // One gesture, two articulations, nothing latched.
+  //
+  // SQUARED, for R_VOX's reason exactly: keyvel is differentiated from the raw
+  // position, so a still key carries ~0.2 RMS of jitter on this source. Linear
+  // that is 4 semitones of hiss riding the onset window; squared it is 0.9, and
+  // a real press saturates anyway so the gesture loses nothing.
+  //
+  // SOURCE AND VIA SWAPPED, the R_OBIE trick again — only the SOURCE takes a
+  // curve (modEvaluate multiplies `via` in raw), and the thing that needs
+  // shaping here is the key speed, not the window.
+  { SRC_KEYVEL,   DST_CUTOFF, 22.0f, SRC_ATTACK, CURVE_SQUARE },
+  // ...AND THE SAME GESTURE ON THE LEVEL, which is the half that makes it read
+  // as an attack rather than as a filter blip. A struck note has a front EDGE:
+  // it is briefly louder than the body it settles into. Position alone cannot
+  // produce that, because position is monotonic on the way in — whatever the
+  // finger is doing, gain only rises to meet it.
+  //
+  // 0.22 is deliberately small. It is an accent on a note whose loudness is
+  // still the finger's, not a velocity layer sneaking back in: stab and hold at
+  // half travel and the note speaks at 0.48 and settles to 0.26, which is a
+  // piano's shape. Push it past ~0.35 and the settle becomes an audible drop.
+  { SRC_KEYVEL,   DST_AMP,     0.22f, SRC_ATTACK, CURVE_SQUARE },
+  // BOTH OF THOSE ROUTES GO NEGATIVE ON THE WAY OUT, and it is worth knowing
+  // rather than rediscovering. keyvel is signed — positive descending — and
+  // applyCurve preserves the sign through the square, so a key SNATCHED back
+  // inside the 260 ms window subtracts its 22 semitones and 0.22 of gain
+  // instead of adding them.
+  //
+  // Kept, and the reason it is harmless is arithmetic rather than taste: a key
+  // is only moving upward while its position is FALLING, and the amplitude pair
+  // above is already at zero gain below 0.15 of travel. The negative excursion
+  // is therefore subtracting from a voice on its way into silence — it can pull
+  // the last audible fifth of the travel down a little faster, and it cannot do
+  // anything at all near the bottom. Checked: at the worst case the engine's
+  // own `if (gain < 0) gain = 0` catches it (Synth.cpp).
+  //
+  // Which leaves it saying the same thing the engine already says elsewhere: a
+  // fast lift also scales the release by REL_SCALE_FAST (0.35). Snatch the key
+  // and the note ducks and darkens on the way out.
+  // Obie's res is a fixed 1.50 because a struck patch's peak has nothing to
+  // follow. Here it climbs 1.20 -> 1.60 under the finger, crossing obie's own
+  // number two thirds of the way down and going slightly past it: the cutoff is
+  // so far open at the bottom of this key that a little more peak is what keeps
+  // it a filtered saw rather than a bare one. Squared, like strbow and swell —
+  // a peak that moved linearly with the first third of the travel would put
+  // emphasis on a harmonic before there is enough level to hear what it did.
+  { SRC_POSITION, DST_RES,     0.40f, SRC_CONST, CURVE_SQUARE },
+  // Copied from R_OBIE verbatim, exponent and all. See the note above.
+  { SRC_POSITION, DST_PITCH,  14.0f, SRC_LFO1, CURVE_LINEAR, 3.0f },
+  { SRC_RANDOM,   DST_DETUNE,  4.0f },
+  // NO DST_OSCB ROUTE, which is where swell and this one part company for the
+  // second time. swell holds mixB at 0.45 and swells the partner in as you
+  // press; obie's second saw is at 1.00 from the first instant, because two
+  // full detuned saws in unison IS the Oberheim sound and metering it out
+  // would be describing a different instrument.
+  //
+  // NO NOISE EITHER, floor or route. Every patch that has air here is
+  // imitating something acoustic — breath, rosin, pipe speech. This is a
+  // polysynth, and swell's threshold-air trick would only make it sound like
+  // a worse violin.
+};
+
 // Percussive: hard hits much brighter, brightness tracking the envelope.
 static const ModRoute R_PLUCK[] = {
   VEL_TO_AMP,
@@ -1483,7 +1653,15 @@ static const ModRoute R_CLAROB[] = {
 // That is the thing a keyboard cannot do at all. Pitch bend on a MIDI keyboard
 // is a wheel, and a wheel is monophonic by construction — it bends the whole
 // instrument. Here the source is the key's own depth, so the chord you plucked
-// stays where it is and the finger you push bends its note out of it.
+// stays where it is and the one finger you press home carries its note up into
+// tune underneath it.
+//
+// AND THE DIRECTION IS THE WHOLE DESIGN. The obvious way round — in tune at
+// rest, bending away as you press — makes the instrument worse the harder you
+// play it, because pressing home is what a hand does naturally and it is the
+// one thing that must not detune anything. So the note is born FLAT and the
+// key's own bottom is the true pitch. Every gesture then points the same way:
+// press, and it comes into tune; press harder, and it stays there.
 //
 // ART_PLUCKED is what makes it playable: the strike is DISCARDED (velocity is
 // hardcoded to 0.5), so the pluck is identical however hard you hit, and
@@ -1492,28 +1670,133 @@ static const ModRoute R_CLAROB[] = {
 // this is that route with the depth turned up by a factor of eighteen until it
 // stops being a wobble and becomes an interval.
 //
-// THE EXPONENT IS DOING SOMETHING DIFFERENT HERE, and it is worth being blunt
-// about the risk. A pluck LANDS the key at some depth, and whatever that depth
-// is, this route is already reading it — so resting depth is now detune:
+// A TAPER CANNOT CARRY A BEND, and this patch spent its first version proving
+// it. A pluck LANDS the key at some depth, and whatever that depth is, this
+// route reads it — so under any power curve, resting depth IS detune:
 //
 //     position   0.30    0.50    0.70    0.85    1.00
-//     cents       5.4    25.0    68.6   122.9   200.0
+//     x^3 cents   5.4    25.0    68.6   122.9   200.0
 //
-// x^3 keeps the ordinary spread of landing depths under about 25 cents, which
-// is a wide-ish honky-tonk chorus and survives a chord. Land at 0.70 and the
-// note is two thirds of a semitone sharp, which does not. THIS IS THE KNOB: if
-// chords arrive out of tune, raise the exponent rather than cutting the depth —
-// x^5 puts 0.70 back at 34 cents and still reaches the full whole tone at the
-// bottom of the key, so the interval survives and the noise does not.
+// The obvious repair is a steeper exponent, and it does not work. x^5 puts
+// 0.70 back at 34 cents but 0.85 is still 89; x^12 gets 0.70 to 3 cents and
+// then packs the whole tone into the last tenth of travel, where the slope is
+// 24 cents per one percent of key and a held note wanders. That is the whole
+// family's problem, not a bad choice inside it: a power law maps every depth
+// to a different pitch, so there is nowhere to REST. Steepening only moves
+// which fingers are out of tune.
+//
+// So the shape is a STOP, and the stop is AT THE BOTTOM OF THE KEY. A constant
+// puts the note a whole tone flat and the detent gives that whole tone back as
+// the finger goes down, exactly and completely, from 0.60 on:
+//
+//     position   0.20   0.25   0.30   0.35   0.40   0.45   0.50   0.55   0.60+
+//     cents    -200.0 -196.8 -179.3 -145.0 -100.0  -55.0  -20.7   -3.2    0.0
+//                              ^ onPos: where a pluck is born
+//
+// EVERYTHING FROM 0.60 DOWN IS THE PRESCRIBED PITCH, dead exact — not close,
+// not within a few cents, but the same float the unmodulated note would have
+// used, because -200 + 200*1.0 cancels. Two fifths of the key, all of it the
+// part a hand actually rests in, is one in-tune note. That is the complaint
+// this patch exists to answer: a chord is in tune when it is HELD, which is
+// when you need it to be.
+//
+// AND THE BEND IS THE APPROACH. The note is born at onPos and climbs from
+// there, so onPos is not a detection detail here — IT IS HOW MUCH BEND THE
+// PATCH HAS. That is the whole reason MEEND_GESTURE exists below. At the
+// default 0.400 a fresh pluck starts only a semitone flat and reaches pitch a
+// fifth of a key later: the full whole tone was still in the table but you
+// could only get at it by easing BACK off a note that was already in tune,
+// which is a slide down, not a slide up. Pluck-and-slide-up is the gesture the
+// patch is named for and it had half the frequencies to work with.
+//
+// Born at 0.300 it starts 179 cents flat — within a fifth of a comma of the
+// whole tone — and the whole climb is press-inward. The slide down is not lost;
+// it is the same travel walked the other way.
+//
+// THE FLAT END IS BOUNDED BY THE GESTURE LAYER, and that bound is now set here
+// rather than inherited. offPos 0.150 sits below the detent edge at 0.20, so a
+// sounding note can be held at the very bottom of the bend with 5% of travel in
+// hand before it releases — at the default 0.180 that margin was 2%, about two
+// samples of jitter, and a held whole tone could drop the note.
+//
+// 0.20 AND 0.40 ARE THE KNOBS now, not the exponent. The span is what the ear
+// hears as the SPEED of the slide for a given finger movement; the edge sets
+// how flat a fresh pluck speaks, since the note is born partway along the
+// crossing. Move the pair so that edge+span stays at 0.60 and only the shape of
+// the approach changes; raise their sum and you start taking in-tune key away
+// from the chord, which is the thing not to do. Smootherstep is doing real work
+// at the top: its slope vanishes into the plateau, so 0.55 is 3 cents flat and
+// 0.50 is 21 — the note is effectively in tune well before the finger reaches
+// the stop, and a press that falls short is still musical.
+//
+// SRC_POSITION AND NOT SRC_PRESSURE, and turning the bend around is what
+// settled it. Pressure zeroes itself at whatever depth the note landed, which
+// is exactly right when the landing is supposed to be the in-tune reference and
+// the bend is a departure from it — the first version of this patch wanted it
+// badly and could not have it, because updatePressure (Gesture.cpp) throws away
+// its rest point as soon as the key goes heldBand (0.10) deeper, so a
+// deliberate lean collapses to zero at the moment the bend should be arriving.
+// See R_TRIGGER and the "KNOWN LIMIT" case in test_pipeline.cpp.
+//
+// With the true pitch at the BOTTOM of the key that limitation stops mattering
+// and pressure stops being wanted. The prescribed pitch has to live at a fixed
+// physical place or it is not prescribed: a relative source would put "in tune"
+// wherever the last strike happened to stop, so the same firm press would land
+// somewhere different every note. Absolute depth is the whole point.
+
+// GESTURE_DEFAULT with two numbers moved, and both are moved for the BEND
+// rather than for detection. This is the first per-patch GestureConfig in the
+// library; Preset::gesture has existed for a while with every row passing
+// nullptr.
+//
+// onPos 0.300 IS NOT FREE. There is no persistence check on the way in for a
+// triggered articulation — GP_IDLE arms at velStart and GP_DESCENDING fires the
+// instant the key passes onPos — so this threshold is the only thing standing
+// between crosstalk and a phantom note, and the residual reaches 0.150 on this
+// hardware (see GESTURE_DEFAULT's contOn). 0.400 was 2.7x that; 0.300 is 2.0x.
+// That is a real margin spent on a real gesture, and it is why this did not go
+// to 0.250 — which would have put a fresh pluck within 3 cents of the full
+// whole tone and left only 1.7x. If phantom notes appear on this preset and
+// nowhere else, that trade is the reason and 0.350 is the retreat.
+static const GestureConfig MEEND_GESTURE = {
+  /* contOn      */ 0.150f,
+  /* contOff     */ 0.100f,
+  /* velStart    */ 0.060f,
+  /* onPos       */ 0.300f,   // the bend's flat end, not a detection threshold
+  /* offPos      */ 0.150f,   // room to HOLD the bottom of the bend
+  /* velFastMs   */ 2.0f,
+  /* velSlowMs   */ 200.0f,
+  /* velAtFast   */ 1.0f,
+  /* velAtSlow   */ 0.16f,
+  /* settleMs    */ 60.0f,
+  /* stillRate   */ 0.20f,
+  /* velTauMs    */ 30.0f,
+  /* keyVelFull  */ 4.0f,
+  /* heldBand    */ 0.10f,
+  /* minRoom     */ 0.100f,
+  /* smoothTauMs */ 8.0f,
+  /* retreatHyst */ 0.025f,
+  /* maxDescentMs*/ 600.0f,
+  /* onSamples   */ 3,
+  /* offSamples  */ 3,
+};
+
 static const ModRoute R_MEEND[] = {
   VEL_TO_AMP,
-  // 200 cents is a WHOLE TONE, chosen because it is the interval the gesture is
-  // named for and because it is the largest one a finger can hold steady — the
-  // route is linear in position above the exponent, so anything you can aim at
-  // on the key you can aim at in pitch. A semitone (100) is easier to play in
-  // tune and much less dramatic; a minor third (300) is a sitar's full pull and
-  // needs a key you can lean into without bottoming.
-  { SRC_POSITION, DST_PITCH, 200.0f, SRC_CONST, CURVE_LINEAR, 3.0f },
+  // THESE TWO ROWS ARE ONE THING and the numbers must match exactly. The
+  // constant detunes the whole patch a whole tone flat; the detent hands that
+  // same whole tone back as the key goes down. 200 and 200, not 200 and 199 —
+  // -200.0f + 200.0f * 1.0f is zero in float with no rounding at all, which is
+  // what makes "in tune below 0.60" mean the unmodulated pitch rather than
+  // something very near it. Change one and change the other.
+  //
+  // 200 cents is a WHOLE TONE, the interval the gesture is named for, and here
+  // it is not a destination but a DISTANCE — how far below its own pitch the
+  // note can be dragged, and how much of the key is spent climbing back. A
+  // semitone (100) is much easier to bring home; a minor third (300) is a
+  // sitar's full pull and would need onPos lower than crosstalk allows.
+  { SRC_CONST,    DST_PITCH, -200.0f },
+  { SRC_POSITION, DST_PITCH,  200.0f, SRC_CONST, CURVE_DETENT, 0.20f, 0.40f },
   // Both oscillators move together — DST_PITCH is the common route and
   // DST_DETUNE is the one that separates them — so oscB stays exactly two
   // octaves above oscA through the whole bend and keeps reinforcing the 4th
@@ -1536,9 +1819,93 @@ static const ModRoute R_MEEND[] = {
   // the whole claim these two rows are here to make.
   { SRC_ATTACK,   DST_NOISE,   0.22f },
   // NO VIBRATO ROUTE. harpsi puts an LFO on this same destination and the two
-  // cannot coexist: a finger aiming at a whole tone does not want the target
-  // moving, and 11 cents of wobble on top of a 200-cent bend is a note that
-  // never quite arrives.
+  // cannot coexist: a finger bringing a note up to pitch does not want the
+  // target moving, and 11 cents of wobble on an arrival that is supposed to be
+  // exact is a note that never quite lands.
+};
+
+// ========================== THE BEND, BOTH WAYS ============================
+// SARANGI — meend's question asked of a key that is never struck at all. A
+// sarangi has no frets and no plectrum: the note is bowed continuously and
+// every pitch on the instrument is arrived at by sliding a fingernail along a
+// string. There is no "correct" place to put the finger that the instrument
+// enforces, which is why it is the hardest instrument in the world to play in
+// tune and why nothing else sounds like one.
+//
+// ART_CONTINUOUS, so there is no strike, no flight time and no critical point:
+// the note begins when the key leaves rest (contOn 0.150) and lasts exactly as
+// long as the key is down. Everything after that is one finger on one
+// continuous control.
+//
+// AND THE CONTROL IS PITCH, NOT LOUDNESS, which no other continuous patch in
+// this library does. theremin, swell, reed, bowed, strbow and vox all answer
+// "what does depth do?" with amplitude or a filter — depth is EFFORT there, and
+// their whole expressive range is how hard the note is being played. Here
+// effort is fixed and depth is INTONATION. Two consequences worth stating:
+//
+//   1. THE DYNAMIC IS STABLE BY CONSTRUCTION. Look at the DST_AMP pair: it is a
+//      detent, not a taper, and it reaches exactly 1.0 at 0.246 of travel and
+//      stays there for the remaining three quarters of the key. Every pitch the
+//      bend can reach is at the same loudness, so a slide is a slide and not a
+//      crescendo — and a chord does not rebalance itself when one voice bends.
+//   2. THE ONSET IS STILL THE FINGER'S. A continuous voice gets a hardcoded
+//      4 ms attack in synthNoteOn precisely because the patch is assumed to be
+//      drawing the envelope; a patch that held a constant would arrive as a
+//      step. The 0.15..0.25 ramp is that envelope, compressed into the sliver
+//      of travel below where the music happens.
+//
+// TWO DETENTS ON ONE DESTINATION, WHICH IS THE WHOLE TRICK. meend's bend is
+// unipolar because a plucked note has a floor it is pinned against; this one
+// has to go both ways, so the in-tune pitch cannot live at either end of the
+// key. A constant sits the note a whole tone flat, one detent climbs it back
+// over 0.15..0.45, and a second detent — starting only at 0.65 — takes it a
+// whole tone sharp over the rest of the travel. What is between them is
+// nothing at all:
+//
+//     position  0.15   0.20   0.25   0.30   0.35  0.45-0.65  0.75  0.82   1.00
+//     cents   -200.0 -192.9 -158.0 -100.0  -42.0     0.0     28.9 100.0  200.0
+//     level     0.00   0.50   1.00   1.00   1.00     1.00    1.00  1.00   1.00
+//
+// 0.45 TO 0.65 IS EXACT. Both detents are flat there — the first has finished,
+// the second has not begun — so the sum is -200 + 200 + 0, which is zero in
+// float with nothing left over. A fifth of the key is the note itself, and
+// smootherstep's vanishing slope widens that to 0.39..0.72 within ten cents:
+// a third of the travel plays in tune without being aimed at.
+//
+// A WHOLE TONE EITHER SIDE is a major third of total range on one key, and it
+// is a lot. It is deliberately not more: the reachable flat end is bounded by
+// contOff (0.100) the same way meend's is by offPos, and pushing the range
+// wider would put the extremes where a finger cannot hold them. If it feels too
+// live, narrow it by moving the two edges toward each other — 0.20 and 0.60
+// gives the same intervals over more key and a slower slide.
+static const ModRoute R_SARANGI[] = {
+  // NO VEL_TO_AMP, and not for the usual continuous reason. The other patches
+  // omit it because their loudness is position; this one omits it because its
+  // loudness is nothing at all. Under ART_CONTINUOUS the gesture layer hands
+  // over a constant 0.5 velocity anyway, so a velocity route here would be a
+  // fixed trim wearing an expressive name.
+  { SRC_CONST,    DST_AMP,   -1.00f },
+  { SRC_POSITION, DST_AMP,    1.00f, SRC_CONST, CURVE_DETENT, 0.15f, 0.10f },
+  // The bend. Read these three as one expression — see the table above — and
+  // note that all three depths are 200: the cancellation that makes the middle
+  // of the key exactly in tune only holds while they match.
+  { SRC_CONST,    DST_PITCH, -200.0f },
+  { SRC_POSITION, DST_PITCH,  200.0f, SRC_CONST, CURVE_DETENT, 0.15f, 0.30f },
+  { SRC_POSITION, DST_PITCH,  200.0f, SRC_CONST, CURVE_DETENT, 0.65f, 0.35f },
+  // Same keytrack correction as meend and harpsi: cutoff is a multiple of the
+  // note, so without this the top octave gets pitch tracking AND more
+  // brightness on top.
+  { SRC_KEYTRACK, DST_CUTOFF, -5.0f },
+  // Analog drift, and it earns more here than anywhere else in the library. A
+  // patch whose entire subject is intonation should not have every voice
+  // land on the identical frequency — three cents of per-note detune is what
+  // stops a unison reading as one oscillator played twice.
+  { SRC_RANDOM,   DST_DETUNE,  3.0f },
+  // NO FILTER ROUTE AND NO LFO. Both would be lies about what the finger is
+  // doing: a sweep would make depth read as effort again, and a vibrato on
+  // DST_PITCH would move the target the whole patch exists to let you find.
+  // fPeak == fBase on the row below for the same reason — the timbre must hold
+  // still so that pitch is the only thing changing.
 };
 
 // ============================ SUB-OCTAVE FM ================================
@@ -2000,6 +2367,86 @@ const Preset PRESET[] = {
     { 5.0f, LFO_SINE, 400.0f, 500.0f }, LFO_OFF, NROUTES(R_OBIE),
     0.15, 0.36, 0.00,   0,   0.00 ,   ART_STRUCK },
 
+// The continuous obie — see R_OBIESW. Sits directly under the struck one on
+// purpose, the same arrangement as strings/strbow and vox/clarob: 'n' and 'p'
+// flip between the two gestures with the oscillators, the drive and the reverb
+// held identical, which is the only honest way to hear what the articulation
+// is doing.
+//
+// What changed on the ROW, and why each one is forced rather than chosen:
+//
+//   a 16 -> 30            cosmetic. ART_CONTINUOUS forces a 4 ms envelope
+//                         attack in synthNoteOn whatever this says, because
+//                         the patch is assumed to be drawing its own onset;
+//                         30 is what every other continuous row carries.
+//   r 450 -> 350          in family with bowed, and MOSTLY DECORATIVE, which
+//                         is worth stating so nobody tunes it looking for a
+//                         crisper ending. The amplitude pair takes gain to
+//                         exactly zero at 0.15 of travel, and a note does not
+//                         end until the key rises past contOff at 0.100 — so
+//                         by the time the envelope's release begins, the
+//                         modulation has already multiplied the voice by zero.
+//                         The release you actually hear on every continuous
+//                         patch here is the FINGER's, drawn on the way out.
+//                         This number only shows up if contOff or the
+//                         amplitude curve moves.
+//   fPeak 15 -> 5.0       the sweep moves from the envelope to the finger —
+//                         see the KEYVEL route in R_OBIESW, which is that
+//                         sweep with the hand deciding whether it happens.
+//   fBase 4.0 -> 5.0      the resting brightness goes UP, not down, and this
+//                         is the correction that fixed "dull". obie's 4.0 is
+//                         a floor it never stands on: velocity adds 10..14
+//                         semitones to every strike, so its real settled
+//                         brightness is 7.3x..9.2x. With no velocity route
+//                         here the floor has to carry that itself. 5.0x is
+//                         the number at which a comfortable third of the way
+//                         down the key gives obie's own 8.4x, and the bottom
+//                         of the key gives 28x — obie's ATTACK brightness,
+//                         held for as long as the finger stays there.
+//
+//                         (The version before this reasoned from strbow's
+//                         2.6 -> 1.8 and went DOWN to 2.4x. strbow's argument
+//                         is sound for a patch whose struck sibling has no
+//                         velocity->cutoff route to hide brightness in;
+//                         strings does not have one, obie does. The general
+//                         rule is the one at the top of R_OBIESW: convert the
+//                         row TIMES the routes, never the row.)
+//   res 1.50 -> 1.20      the base of a climb rather than a fixed peak; the
+//                         route takes it to 1.60 with the key home.
+//   atkMs 0 -> 260        the length of the articulation, and the field exists
+//                         for exactly this. It is the time constant of
+//                         SRC_ATTACK, so it decides how long the stab's 22
+//                         semitones and 0.22 of gain last. obie's equivalent
+//                         is fTau 650, which on a struck patch reads as a
+//                         bloom; 260 is the same gesture tightened until it
+//                         reads as an edge. Lengthen it toward 500 for
+//                         something that swells into the note instead.
+//   LFO1 delay 400 -> 0   A 400 ms delay exists so a struck note does not
+//                         start already wobbling. Here the vibrato is gated by
+//                         position^3 instead — it does not exist until the
+//                         finger commits — so the delay would only mean a
+//                         player who presses home immediately has to wait for
+//                         expression they have already asked for. The 600 ms
+//                         fade stays: it is what stops the wobble appearing as
+//                         a step when the finger crosses into the top third.
+//
+// ampScale stays at 0.42 even though velocity no longer scales anything. It
+// still needs the headroom, and more of it than before: two full saws at res
+// 1.60 and 28x, plus a 0.22 accent on top, is the loudest this patch ever gets,
+// and that is now a place a finger can simply hold.
+//
+// ONE PLACE THIS RUNS OUT OF ROOM, and it is worth knowing rather than hunting:
+// 28.3x on the top octave is past FILT_MAX_HZ (15 kHz, Synth.cpp), so from
+// about C5 up the bottom of the key stops getting brighter and the filter is
+// simply open. The last inch of travel there is res and vibrato only. obie has
+// the identical ceiling on its attack peak and nobody has ever heard it as a
+// fault, because by then there is nothing left above the cutoff to uncover.
+{ "obiesw",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 1.00,
+    30,  1e9f,  350, 0.42,    5.0,  5.0,  400, 1.20,
+    1.00, 0.00, 0.00,
+    { 5.0f, LFO_SINE, 0.0f, 600.0f }, LFO_OFF, NROUTES(R_OBIESW),
+    0.15, 0.36, 0.00,   0,   0.00 ,   ART_CONTINUOUS, nullptr, 0.0f, 260.0f },
+
 // { "fatpluck",WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0, 13.0, 1.00,
 //      2,   380,  140, 0.42,   24.0,  3.0,  180, 1.60,
 //     1.00, 0.00, 0.00,
@@ -2389,12 +2836,55 @@ const Preset PRESET[] = {
 // fBase 7.0 matters more here than it does there. A bent note is a note you are
 // still listening to a second after the pluck, and a patch that goes dull the
 // moment the transient passes has nothing left to bend.
+//
+// `gesture` IS MEEND_GESTURE, and this is the only row in the library that does
+// not pass nullptr. R_MEEND is written against two of its numbers — onPos 0.300
+// is where the note is born and therefore how flat a fresh pluck speaks, and
+// offPos 0.150 is the floor under the deepest part of the bend. The route table
+// and the thresholds are one design; change either and re-read both.
 { "meend",   WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_SINE,               24,  4.0, 0.40,
      2,  1600,  300, 0.60,   16.0,  7.0,  150, 1.30,
     1.00, 0.00, 0.00,
     LFO_OFF, LFO_OFF, NROUTES(R_MEEND),
-    0.06, 0.38, 0.00,   0,   0.00,   ART_PLUCKED, nullptr, 0.0f, 30.0f,
+    0.06, 0.38, 0.00,   0,   0.00,   ART_PLUCKED, &MEEND_GESTURE, 0.0f, 30.0f,
     0.00f, 5.0f },
+
+// MEEND'S OSCILLATORS, EXACTLY, for the same reason meend borrowed harpsi's:
+// saw plus a sine two octaves up at 0.40, the same detune, the same filter
+// ratio. 'n' from meend to here should sound like the same string being played
+// by a different technique — plucked and bent, then bowed and slid — because
+// every difference between the two rows is about the GESTURE and none of it is
+// about the sound.
+//
+// THREE FIELDS ARE NOT MEEND'S, and each one is a consequence of the note being
+// bowed rather than plucked:
+//
+//   tau 1e9    never decays. A bend you are still shaping four seconds later
+//              needs a note that is still there, and meend's 1600 ms decay was
+//              already the shortest thing that patch could tolerate.
+//   fPeak 7.0  EQUAL TO fBase, so the filter does not sweep at all. Every other
+//              expressive patch here moves its timbre; this one must not, or
+//              the ear hears the sweep and stops hearing the intonation. There
+//              is no plectrum to announce, so there is nothing to sweep FOR.
+//   a 500      ignored. ART_CONTINUOUS forces a 4 ms envelope attack because
+//              the patch is assumed to be drawing its own — which R_SARANGI's
+//              DST_AMP detent is doing, over 0.15..0.25 of travel. The number
+//              is here to be read, not used; see synthNoteOn.
+//
+// noise 0.05 at noiseHp 3.0 is bow rosin: a hiss sitting ABOVE the fundamental
+// rather than breath sitting on it. Small, constant, and it exists because a
+// sustained pair of oscillators with a static filter and no vibrato is the most
+// synthetic thing this library can produce, and a bowed instrument's noise is
+// what the ear uses to believe there is a physical object making the sound.
+//
+// `gesture` is nullptr: GESTURE_DEFAULT's contOn is already 0.150, which is
+// exactly where this patch wants to speak. Nothing to override.
+{ "sarangi", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_SINE,               24,  4.0, 0.40,
+   500,  1e9f,  300, 0.55,    7.0,  7.0,  150, 1.30,
+    1.00, 0.00, 0.00,
+    LFO_OFF, LFO_OFF, NROUTES(R_SARANGI),
+    0.06, 0.38, 0.00,   0,   0.00,   ART_CONTINUOUS, nullptr, 0.0f, 0.0f,
+    0.05f, 3.0f },
 
 // THE ONLY PATCH IN THE LIBRARY WHOSE EFFECTS ARE THE INSTRUMENT. delaySend
 // 0.35 into an 18.18 ms line at 0.80 feedback is not an echo — see R_TANPURA —

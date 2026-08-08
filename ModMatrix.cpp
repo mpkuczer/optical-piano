@@ -17,13 +17,32 @@ static float hashToUnit(uint32_t x) {
   return (float)(x & 0xFFFFFF) / 8388607.5f - 1.0f;   // -1..1
 }
 
+static float clampf(float v, float lo, float hi) {
+  return v < lo ? lo : (v > hi ? hi : v);
+}
+
 // Curves are defined only on 0..1. A bipolar source (an LFO) keeps its sign
 // and the shape is applied to its magnitude, so a curved LFO stays symmetric
 // instead of turning into a rectifier.
-static float applyCurve(float v, uint8_t curve, float shape) {
+static float applyCurve(float v, uint8_t curve, float shape, float span) {
   if (shape <= 0.0f && curve == CURVE_LINEAR) return v;
   float s = v < 0.0f ? -1.0f : 1.0f;
   float m = v < 0.0f ? -v : v;
+  // Tested before the shape override, because for this curve `shape` is the
+  // detent edge and not an exponent — see ModMatrix.h. Every other curve keeps
+  // the old rule exactly.
+  if (curve == CURVE_DETENT) {
+    // An edge at 1.0 divides by zero and an edge at or below 0 makes the dead
+    // zone empty, which is not a detent and is the sort of typo that reaches
+    // the audio path as a NaN. Half travel is the harmless reading.
+    float a = (shape > 0.0f && shape < 1.0f) ? shape : 0.5f;
+    // A span of zero is the default, and it means the crossing runs out to
+    // full travel rather than being instantaneous — a zero-width crossing is
+    // a step, and a step in pitch is a click.
+    float w = (span > 0.0f) ? span : (1.0f - a);
+    float t = clampf((m - a) / w, 0.0f, 1.0f);
+    return s * t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+  }
   if (shape > 0.0f) {
     // A route that asks for a specific exponent pays for a powf; the enum
     // curves keep their multiply-based paths, which is most routes.
@@ -38,10 +57,6 @@ static float applyCurve(float v, uint8_t curve, float shape) {
     }
   }
   return s * m;
-}
-
-static float clampf(float v, float lo, float hi) {
-  return v < lo ? lo : (v > hi ? hi : v);
 }
 
 float lfoValue(const LfoConfig &cfg, float ageMs, uint32_t seed,
@@ -126,7 +141,8 @@ void modEvaluate(const ModContext &ctx,
     if (!have[g]) { cache[g] = sourceValue(g, ctx, lfo1, lfo2, seed); have[g] = true; }
     // The curve shapes the SOURCE, not the via-multiplier: `via` scales how
     // much of the route applies, and shaping that would compound confusingly.
-    out[d] += applyCurve(cache[s], routes[i].curve, routes[i].shape)
+    out[d] += applyCurve(cache[s], routes[i].curve, routes[i].shape,
+                         routes[i].span)
             * cache[g] * routes[i].depth;
   }
 }
