@@ -127,6 +127,54 @@ struct Preset {
   //   80-150   chiff. The pipe speaking before it settles.
   //   300+     a swell into the body rather than a mark at its start.
   float atkMs;
+
+  // ---- pink noise ----------------------------------------------------------
+  // Level of a per-voice PINK noise generator, in the same linear units as the
+  // oscillators: 0.10 is a tenth of the voice's peak. Zero disables it, which
+  // is why every existing preset is unaffected — they end at atkMs and these
+  // two zero-fill.
+  //
+  // The noise joins the voice at the oscillator mixer, so it goes through the
+  // SAME filter and the SAME amplitude envelope as the tone. That is the whole
+  // reason it sounds like part of the instrument instead of a hiss behind it:
+  // it tracks the note's pitch, brightens when the note brightens, and stops
+  // dead when the note stops. It also means `noise` is counted in the voice's
+  // headroom exactly like mixB, so ampScale still means the peak of the whole
+  // voice.
+  //
+  // Working range. These are small numbers and they are supposed to be:
+  //   0.03-0.06  a texture you notice only when it is removed. Pads, strings.
+  //   0.08-0.15  audibly breathy. A flute, a reed being pushed.
+  //   0.20-0.30  the noise is a voice of its own. `airy`, and not much else.
+  // Above about 0.35 the tone stops being the point.
+  //
+  // Most of the good ones are ROUTES rather than this constant — see DST_NOISE.
+  // A constant is air that is always there; a route is air that arrives when
+  // you blow harder, or a chiff that is gone by the time the note settles.
+  // Set this to the floor and let the routes do the moving.
+  float noise;
+
+  // Highpass corner on the noise, AS A MULTIPLE OF THE NOTE'S PITCH — the same
+  // convention as fPeak/fBase, and for the same reason: a fixed corner would
+  // leave the bass notes rumbling and the treble notes thin.
+  //
+  // This filter is not optional and it is not a tone control. Pink noise has
+  // most of its energy at the bottom, so unfiltered it is rumble, and twenty
+  // five voices of rumble summed is mud that no amount of level trimming
+  // rescues. Cutting below the fundamental is what turns it into air.
+  //
+  // Zero means NOISE_HP_DEFAULT_RATIO (Synth.cpp) — the note's own fundamental,
+  // which is the safe answer for anything.
+  //   1.0-2.0   breath sitting on the note. Flutes, reeds, voices.
+  //   3.0-5.0   a hiss ABOVE the tone: bow rosin, plectrum, mallet felt.
+  //   6.0+      a tick rather than a sound, for attack transients only.
+  //
+  // The voice's own lowpass supplies the top end, so this and fBase together
+  // are a bandpass on the noise — and because both track pitch, the band moves
+  // with the keyboard. Where fBase sits BELOW this ratio the noise is silent
+  // until something opens the filter, which is how `bowed` gets rosin that
+  // appears only when you lean on the key.
+  float noiseHp;
 };
 
 extern const Preset PRESET[];

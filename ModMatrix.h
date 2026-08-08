@@ -101,6 +101,28 @@ enum ModDest : uint8_t {
                    //   sound because a decaying index sweeps timbre
                    //   continuously, and that is exactly
                    //   { SRC_FILTENV, DST_FM, depth, via SRC_VELOCITY }.
+  DST_NOISE,       // PINK NOISE level offset, added to the preset's `noise`.
+                   //   Linear, in the same units as the oscillators: 0.10 is a
+                   //   tenth of the voice's peak.
+                   //
+                   //   The other destination that adds rather than shapes, and
+                   //   the counterpart to DST_FM. FM creates partials at
+                   //   specific frequencies; this creates energy at ALL of
+                   //   them, which is the one thing two oscillators and a
+                   //   filter genuinely cannot fake. Breath, bow rosin, pipe
+                   //   speech, plectrum, mallet felt — every acoustic
+                   //   instrument in the library is part noise, and until now
+                   //   every patch here was a pure tone pretending otherwise.
+                   //
+                   //   PINK, not white. Real breath and bow noise fall off
+                   //   with frequency; white noise put through a lowpass still
+                   //   sounds like a hiss generator behind the note, because
+                   //   the ear reads a flat spectrum as electronic. -3 dB per
+                   //   octave is what makes it read as air.
+                   //
+                   //   Level is multiplied by the voice's amplitude before it
+                   //   is applied, so noise decays with the note and stops when
+                   //   it does — it is part of the voice, not a bed under it.
   NUM_DESTS
 };
 

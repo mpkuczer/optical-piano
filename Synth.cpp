@@ -3,10 +3,10 @@
 // ============================================================================
 // SIGNAL PATH (per voice, x25)
 //
-//   oscA ┐                        ┌─ lowpass  ─┐
-//        ├─> voice mix -> filter ─┼─ bandpass ─┼─> blend -> amp env ─┐
-//   oscB ┘                        └─ highpass ─┘                     │
-//                                                                    v
+//   oscA  ────────────┐             ┌─ lowpass  ─┐
+//   oscB  ────────────┼─> voice mix ┼─ bandpass ─┼─> blend -> amp env ─┐
+//   pink noise -> HP ─┘   -> filter └─ highpass ─┘                     │
+//                                                                      v
 //                                                             mixer tree
 //                                                                    │
 //        ┌───────────────────────────────────────────────────────────┘
@@ -17,6 +17,10 @@
 //
 // The state-variable filter computes all three responses simultaneously, so
 // blending them costs one extra mixer per voice and nothing in DSP.
+//
+// The noise enters BEFORE the filter and the envelope on purpose. It is not a
+// send and not a layer: it is a third oscillator, and it is shaped by
+// everything that shapes the tone. See Preset::noise and DST_NOISE.
 //
 // Two modulations run in loop() rather than as audio objects, because the
 // library has no object for either and control rate is plenty:
@@ -41,6 +45,10 @@ static const float    FILT_MAX_HZ = 15000.0f;
 // zero-fills). 90 ms is a chiff: clearly a separate event at the start of the
 // note, over before anyone would call it part of the sustain.
 static const float    ATTACK_TAU_DEFAULT_MS = 90.0f;
+// Preset::noiseHp when a preset does not state one (it zero-fills). 1.0 is the
+// note's own fundamental: everything below the note is removed, everything the
+// note actually occupies is kept. Safe for anything, ideal for nothing.
+static const float    NOISE_HP_DEFAULT_RATIO = 1.0f;
 
 // ---- anti-zipper ----------------------------------------------------------
 // AudioSynthWaveform::amplitude() and AudioFilterStateVariable::frequency()
@@ -156,7 +164,22 @@ static AudioSynthWaveform        oscB[NUM_VOICES];
 // block, so a preset with fmRatio 0 pays essentially nothing for them.
 static AudioSynthWaveformModulated oscF[NUM_VOICES];
 static AudioSynthWaveform          oscM[NUM_VOICES];
-static AudioMixer4               vmix[NUM_VOICES];   // sums the two oscillators
+// The third oscillator, and the only one that is not periodic. Same early-out
+// as the waveforms — AudioSynthNoisePink::update() returns before allocating a
+// block when level is 0 (synth_pinknoise.cpp), so a patch with noise 0 pays
+// nothing for 25 of these.
+static AudioSynthNoisePink       pnoise[NUM_VOICES];
+// Highpass on the noise, tracking the note's pitch. NOT a tone control — see
+// Preset::noiseHp. One Butterworth stage, 12 dB/octave, which on top of pink's
+// own -3 dB/octave tilt is a 15 dB/octave rolloff below the corner: enough to
+// clear the rumble, gentle enough that the noise still has a bottom to it. A
+// steeper cascade sounds like a bandpass rather than like air.
+//
+// An unconfigured AudioFilterBiquad has all-zero coefficients and passes
+// NOTHING (see its constructor), so every voice gets stage 0 set in synthBegin
+// whether or not any preset uses noise.
+static AudioFilterBiquad         nhp[NUM_VOICES];
+static AudioMixer4               vmix[NUM_VOICES];   // sums the oscillators
 static AudioFilterStateVariable  vfilt[NUM_VOICES];
 static AudioMixer4               fmix[NUM_VOICES];   // blends LP/BP/HP
 static AudioEffectEnvelope       env[NUM_VOICES];
@@ -173,7 +196,22 @@ static AudioMixer4               outL, outR;
 static AudioOutputI2S            i2s1;
 static AudioControlSGTL5000      sgtl;
 
-static AudioConnection *pc[256];
+// 256 WAS ALREADY TOO SMALL BEFORE THE NOISE PAIR, and this is a real bug that
+// was fixed on the way past rather than one the noise introduced. Count it: the
+// voice loop makes 10 connections x 25 voices = 250, the seven mix1 -> mix2
+// cords take it to 257, and the bus takes it to 275. buildGraph has therefore
+// been writing nineteen pointers past the end of this array, into whichever
+// statics the linker happened to place after it.
+//
+// Why the instrument still worked is not something to be comfortable about.
+// The audio graph is built by AudioConnection's CONSTRUCTOR, so the cords all
+// existed and functioned regardless of where their pointers landed — pc[] only
+// exists to own the allocations — and the corrupted neighbours were evidently
+// ones synthBegin goes on to initialise anyway, or ones nothing reads. That is
+// luck and linker layout, not a design.
+//
+// 12 per voice now, so 325. 384 leaves room for another two per voice.
+static AudioConnection *pc[384];
 static int pcCount = 0;
 
 // ---- per-voice state -----------------------------------------------------
@@ -182,6 +220,7 @@ static uint32_t voiceOnMs[NUM_VOICES];
 static float    voiceAmp0[NUM_VOICES];
 static float    voiceTau[NUM_VOICES];
 static float    voiceMixB[NUM_VOICES];
+static float    voiceNoise[NUM_VOICES];  // the preset's base level, latched
 static float    voiceCutPeak[NUM_VOICES];
 static float    voiceCutBase[NUM_VOICES];
 static float    voiceFTau[NUM_VOICES];
@@ -208,6 +247,13 @@ static float    voiceAmpSmA[NUM_VOICES];
 static float    voiceAmpSmB[NUM_VOICES];
 static float    voiceCutSm[NUM_VOICES];
 static float    voiceFmSm[NUM_VOICES];
+// Noise gets the same pole as the oscillators and for the same reason: on a
+// continuous patch its level is a finger on a sprung key, and an un-smoothed
+// level written every 2 ms is a staircase. It matters MORE here than on the
+// tone, because a stepping noise level is amplitude modulation of a broadband
+// signal — which spreads sidebands across the whole spectrum instead of around
+// one partial, and reads as crackle rather than as wobble.
+static float    voiceNoiseSm[NUM_VOICES];
 static uint32_t rngState = 0x12345678;
 
 // Cheap deterministic RNG. Per-note randomness is how analog drift is faked:
@@ -238,6 +284,11 @@ static void buildGraph() {
     // zeroed, so the graph does not change shape.
     pc[pcCount++] = new AudioConnection(oscM[i],  0, oscF[i],  0);
     pc[pcCount++] = new AudioConnection(oscF[i],  0, vmix[i],  2);
+    // Noise takes vmix input 3, which was allocated and zeroed and otherwise
+    // idle. It joins the tone BEFORE the filter, so the same cutoff that
+    // shapes the oscillators shapes the air.
+    pc[pcCount++] = new AudioConnection(pnoise[i], 0, nhp[i],  0);
+    pc[pcCount++] = new AudioConnection(nhp[i],    0, vmix[i], 3);
     pc[pcCount++] = new AudioConnection(vmix[i],  0, vfilt[i], 0);
     // Outputs 0/1/2 of the state-variable filter are lowpass, bandpass and
     // highpass of the SAME signal, computed together. Blending is free.
@@ -349,7 +400,17 @@ void synthBegin() {
     oscB[i].amplitude(0.0f);
 
     vmix[i].gain(0, 1.0f); vmix[i].gain(1, 1.0f);
-    vmix[i].gain(2, 1.0f); vmix[i].gain(3, 0.0f);
+    vmix[i].gain(2, 1.0f); vmix[i].gain(3, 1.0f);
+
+    // Level 0 costs nothing, so 25 idle generators are free until a preset
+    // asks for one. The highpass still has to be configured here: all-zero
+    // coefficients pass nothing, and a voice that reached its first note-on
+    // with an unset biquad would have silent noise however loud the level was.
+    pnoise[i].amplitude(0.0f);
+    nhp[i].setHighpass(0, clampf(voiceFreq[i] * NOISE_HP_DEFAULT_RATIO,
+                                 20.0f, 16000.0f), 0.7071f);
+    voiceNoise[i]   = 0.0f;
+    voiceNoiseSm[i] = 0.0f;
 
     // Full-scale phase deviation for a modulator at amplitude 1.0. 600 degrees
     // is 10.5 radians, which puts the whole musically useful index range
@@ -404,6 +465,18 @@ void synthBegin() {
 }
 
 // ---- notes ---------------------------------------------------------------
+// Whether this patch can produce noise at all. Only used to decide whether a
+// note-on pays for setHighpass, which is the one genuinely expensive call in
+// the path — a sin and a cos in double precision, x25 when a chord lands. Every
+// patch in the library that has no noise skips it, which is most of them.
+static bool presetUsesNoise(const Preset &p) {
+  if (p.noise > 0.0f) return true;
+  if (!p.routes) return false;
+  for (int k = 0; k < p.nRoutes; k++)
+    if (p.routes[k].dest == DST_NOISE) return true;
+  return false;
+}
+
 void synthNoteOn(int row, int col, float velocity) {
   int i = row * 5 + col;
   float v = clampf(velocity, 0.0f, 1.0f);
@@ -436,7 +509,12 @@ void synthNoteOn(int row, int col, float velocity) {
   // flat-topped sine is odd harmonics, which is why it read as a clarinet's
   // low register. Normalising here means ampScale now means what it says: the
   // peak of the whole voice, not of one oscillator.
-  amp /= (1.0f + p.mixB);
+  //
+  // Noise is in this sum because it is in that mixer, on input 3. A patch that
+  // adds air therefore gets very slightly quieter rather than very slightly
+  // closer to the rails, which is the right trade and keeps every existing
+  // ampScale meaning exactly what it meant (they all have noise 0).
+  amp /= (1.0f + p.mixB + p.noise);
 
   // Detune split symmetrically so perceived pitch stays put.
   float half = p.cents * 0.5f;
@@ -501,6 +579,7 @@ void synthNoteOn(int row, int col, float velocity) {
   float bLevel0 = p.mixB, cut0 = peak, res0 = p.res, pw0 = 0.5f;
   const bool useFM = (p.fmRatio > 0.0f);
   float fmIdx0 = 0.0f;
+  float nLevel0 = p.noise;
   {
     ModContext ctx;
     ctx.velocity = voiceVel[i];
@@ -532,10 +611,17 @@ void synthNoteOn(int row, int col, float velocity) {
     res0 = clampf(p.res + mod0[DST_RES], 0.7f, 4.5f);
     pw0  = clampf(0.5f + mod0[DST_PWM], 0.05f, 0.95f);
     fmIdx0 = clampf(mod0[DST_FM], 0.0f, 1.0f);
+    // Seeded like every other destination, and this one is load-bearing for
+    // the chiff patches: church, flute and harpsi build their onset almost
+    // entirely from { SRC_ATTACK, DST_NOISE }, whose value at age zero is its
+    // maximum. Starting the generator at p.noise and letting the first
+    // synthUpdate ramp it up would put the chiff AFTER the attack — the exact
+    // "distinct second attack" failure the paragraph above was written for.
+    nLevel0 = clampf(p.noise + mod0[DST_NOISE], 0.0f, 1.5f);
     // The same headroom guard synthUpdate applies, for the same reason: the
-    // earlier `amp /= (1 + p.mixB)` normalised against the UNMODULATED mixB,
-    // and a route can push the pair well past that.
-    float pk = amp * (1.0f + bLevel0);
+    // earlier `amp /= (1 + p.mixB + p.noise)` normalised against the
+    // UNMODULATED levels, and a route can push the sum well past that.
+    float pk = amp * (1.0f + bLevel0 + nLevel0);
     if (pk > 1.0f) amp /= pk;
   }
 
@@ -568,6 +654,32 @@ void synthNoteOn(int row, int col, float velocity) {
     oscF[i].begin(WAVEFORM_SINE);
   }
   oscF[i].amplitude(useFM ? amp : 0.0f);
+
+  // The corner is set ONCE, here, because it is a function of the note's pitch
+  // and the note's pitch does not change — vibrato moves the oscillators, not
+  // the air around them, and a real player's breath noise does not wobble with
+  // their vibrato either. Recomputing it every 2 ms would mean 25 sin/cos pairs
+  // per sweep to model something that does not move.
+  //
+  // Guarded, because setHighpass is by far the most expensive thing in
+  // synthNoteOn and no patch without noise has any use for the result.
+  //
+  // The guard means a note struck under a SILENT patch and then caught by a
+  // switch INTO a noisy one keeps whatever corner it last had — synthBegin's
+  // default ratio of 1.0, or an older note's. Left alone deliberately: it is
+  // one already-sounding note at a slightly wrong corner, which is the same
+  // class of thing as voiceCutBase and voiceMixB being latched, and the cure
+  // (recomputing the biquad every sweep) costs 25 sin/cos pairs every 2 ms
+  // forever to fix a case nobody can hear.
+  if (presetUsesNoise(p)) {
+    float hpRatio = (p.noiseHp > 0.0f) ? p.noiseHp : NOISE_HP_DEFAULT_RATIO;
+    nhp[i].setHighpass(0, clampf(voiceFreq[i] * hpRatio, 20.0f, 16000.0f),
+                       0.7071f);
+  }
+  pnoise[i].amplitude(amp * nLevel0);
+  voiceNoise[i]   = p.noise;
+  voiceNoiseSm[i] = amp * nLevel0;
+
   // Seed the smoothers at the modulated values too. Seeding them at the
   // unmodulated ones is what turned the step into a ramp — which is worse,
   // not better: a click is a click, but a ramp arriving late is a second note.
@@ -650,6 +762,11 @@ void synthUpdate() {
       // update for all 25 voices, forever.
       oscF[i].amplitude(0.0f);
       oscM[i].amplitude(0.0f);
+      // Same argument as the modulator: a noise generator left running is not
+      // inaudible, it is 25 blocks a sweep allocated to produce silence behind
+      // a closed envelope. Level 0 is the early-out.
+      pnoise[i].amplitude(0.0f);
+      voiceNoiseSm[i] = 0.0f;
       env[i].noteOff();
       voiceDecaying[i] = false;
       continue;
@@ -679,11 +796,17 @@ void synthUpdate() {
     voiceLastGain[i] = gain;
     float a = voiceAmp0[i] * ampEnv * gain;
     float bLevel = clampf(voiceMixB[i] + mod[DST_OSCB], 0.0f, 1.5f);
-    // Modulation can push the pair back over full scale even after the
+    // voiceNoise is the preset's constant floor; the routes move it from
+    // there. Clamped at zero so a negative route (air that goes AWAY as you
+    // lean in — the bow finding the string, the flute settling) subtracts down
+    // to silence and no further.
+    float nLevel = clampf(voiceNoise[i] + mod[DST_NOISE], 0.0f, 1.5f);
+    // Modulation can push the sum back over full scale even after the
     // note-on normalisation — tremolo adds up to +0.45 of gain, presstest
-    // +0.60. Scale the pair down rather than let the mixer saturate.
+    // +0.60, and a chiff route another 0.25 of noise on top. Scale the whole
+    // voice down rather than let the mixer saturate.
     {
-      float peak = a * (1.0f + bLevel);
+      float peak = a * (1.0f + bLevel + nLevel);
       if (peak > 1.0f) a /= peak;
     }
     // Smooth what is actually written, not the modulation that produced it —
@@ -693,6 +816,13 @@ void synthUpdate() {
     const float kAmp = (float)UPDATE_MS / (AMP_SMOOTH_MS + (float)UPDATE_MS);
     voiceAmpSmA[i] += kAmp * (a          - voiceAmpSmA[i]);
     voiceAmpSmB[i] += kAmp * (a * bLevel - voiceAmpSmB[i]);
+    // Multiplied by `a` — the note's own amplitude, envelope and all — rather
+    // than set from nLevel alone. That is what makes the air part of the voice:
+    // it decays with the note, it swells with the finger, and it is gone the
+    // instant the envelope closes. A noise level held independent of the tone
+    // is a bed under the instrument, which is the sound this is here to avoid.
+    voiceNoiseSm[i] += kAmp * (a * nLevel - voiceNoiseSm[i]);
+    pnoise[i].amplitude(voiceNoiseSm[i]);
     const bool fmOn = (p.fmRatio > 0.0f);
     oscA[i].amplitude(fmOn ? 0.0f : voiceAmpSmA[i]);
     oscB[i].amplitude(voiceAmpSmB[i]);
@@ -837,6 +967,26 @@ void presetDumpRoutes() {
     Serial.println("#   -> fm routed but fmRatio is 0: FM is OFF and those "
                    "routes move nothing");
   }
+  // Noise has no such precondition — a route works with the constant at zero,
+  // which is how most of the good ones are built — so this reports rather than
+  // warns. The number worth seeing is the CORNER, because it is a ratio and a
+  // patch whose fBase sits below it is one whose air only appears once
+  // something opens the filter. That is deliberate on bowed and a mistake
+  // everywhere else, and the two look identical in the route table.
+  float noiseMax = q.noise;
+  for (int k = 0; k < q.nRoutes; k++)
+    if (q.routes[k].dest == DST_NOISE && q.routes[k].depth > 0.0f)
+      noiseMax += q.routes[k].depth;
+  if (noiseMax > 0.0f) {
+    float hpRatio = (q.noiseHp > 0.0f) ? q.noiseHp : NOISE_HP_DEFAULT_RATIO;
+    Serial.print("#   -> pink noise: floor "); Serial.print(q.noise, 2);
+    Serial.print(", peak ");                   Serial.print(noiseMax, 2);
+    Serial.print(", highpass ");               Serial.print(hpRatio, 1);
+    Serial.print("x pitch (filter sits at ");  Serial.print(q.fBase, 1);
+    Serial.println(hpRatio > q.fBase
+                   ? "x: SILENT until a route opens the filter)"
+                   : "x: audible at rest)");
+  }
   // Worst-case level check, since silent clipping is the least obvious way
   // for a patch to sound wrong.
   // Sum ALL amplitude routes, not just the positive ones. A patch that pulls
@@ -847,7 +997,9 @@ void presetDumpRoutes() {
   for (int k = 0; k < q.nRoutes; k++)
     if (q.routes[k].dest == DST_AMP) ampMod += q.routes[k].depth;
   if (ampMod < 0.0f) ampMod = 0.0f;
-  float peak = q.ampScale * (1.0f + q.mixB) * (1.0f + ampMod);
+  // Noise counts here exactly as it counts in the mixer — worst case, so the
+  // routes' peak rather than the constant floor.
+  float peak = q.ampScale * (1.0f + q.mixB + noiseMax) * (1.0f + ampMod);
   Serial.print("#   headroom: peak voice sum = "); Serial.print(peak, 3);
   Serial.println(peak > 1.0f
                  ? "  (was clipping before normalisation; now scaled)"
