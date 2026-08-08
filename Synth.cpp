@@ -266,6 +266,58 @@ static bool     voiceDecaying[NUM_VOICES];
 
 static int      currentPreset = 0;
 static uint32_t lastUpdateMs  = 0;
+
+// ---- the cue voice -------------------------------------------------------
+// The glissando that announces options mode has one job: to be recognised.
+// That rules out playing it in the selected preset, which is the obvious
+// implementation and is wrong for a reason that only shows up on the patches
+// where it matters most — `shimmer` attacks over hundreds of milliseconds and
+// `strings` has a 900 ms release, so a 450 ms run through either is not a
+// gliss, it is a chord fading in after the fact. The one moment the instrument
+// needs to speak clearly is the moment it stops being an instrument, so it
+// speaks in its own voice.
+//
+// Deliberately route-free. `gain = 1.0f + mod[DST_AMP]` in synthUpdate is 1.0
+// with nothing routed, so this needs no expression pushed at it — unlike the
+// preset audition, which has to fake a key position or fall silent on every
+// continuous patch. A cue that depends on being fed is a cue that can fail.
+static const Preset CUE_PRESET = {
+  "cue", WAVEFORM_TRIANGLE, WAVEFORM_BANDLIMIT_SQUARE,  0,  4.0f, 0.22f,
+  // 2 ms in, and a 200 ms time constant, so each step of the run is a
+  // distinct event that is most of the way gone before the next one lands.
+     2.0f,  200.0f,  90.0f, 0.42f,
+  // Wide open at the attack and closing to 3x, which is what makes it read as
+  // a pluck rather than a beep. Everything here tracks pitch, so the run
+  // brightens as it climbs the way a real gliss does.
+     9.0f,    3.0f,  70.0f, 1.10f,
+     1.00f,   0.00f,  0.00f,
+  // Both LFOs off. Presets.cpp spells this LFO_OFF, but that constant is
+  // file-static over there and this row is not worth exporting it for.
+  LfoConfig{ 0.0f, LFO_SINE, 0.0f, 0.0f },
+  LfoConfig{ 0.0f, LFO_SINE, 0.0f, 0.0f },
+  nullptr, 0,
+  // No drive, no delay. A touch of reverb only — enough to bind twenty-five
+  // separate notes into one sweep instead of a row of ticks, and far short of
+  // the feedback delay some patches carry, which would smear the run into
+  // mush and go on smearing it after the mode had already changed.
+     0.00f,   0.18f,  0.00f,   0,   0.00f,
+  ART_STRUCK, nullptr, 0.0f, 0.0f,
+     0.00f,   0.0f
+};
+
+// What the SOUND-making code reads. Normally &PRESET[currentPreset]; the cue
+// points it elsewhere for the duration of a glissando.
+//
+// presetArticulation() and presetGesture() deliberately do NOT go through this.
+// They describe how a KEY is read, not how it sounds, and a cue that changed
+// the detection thresholds under the player's fingers — mid-press, since the
+// gliss fires while the chord is still held — would be a genuinely nasty bug.
+static const Preset *voicePreset = &CUE_PRESET;   // repointed in synthBegin
+
+static bool     cueRunning = false;
+static bool     cueUp      = false;
+static int      cueStep    = 0;
+static uint32_t cueNextMs  = 0;
 static const int SHAPE_N = 257;        // must be 2^n + 1
 static float    shapeTable[SHAPE_N];
 
@@ -355,7 +407,7 @@ static void buildShapeTable(float drive) {
 // Everything that changes the moment you switch preset, as opposed to on the
 // next note played.
 static void applyPresetBus() {
-  const Preset &p = PRESET[currentPreset];
+  const Preset &p = *voicePreset;
 
   buildShapeTable(p.drive);
 
@@ -389,6 +441,10 @@ static void applyPresetBus() {
 void synthBegin() {
   AudioMemory(400);   // the delay line alone can want ~120 blocks
   buildGraph();
+
+  // Before anything reads it. The declaration has to initialise to something,
+  // and PRESET[] lives in another translation unit, so it cannot be that.
+  voicePreset = &PRESET[currentPreset];
 
   for (int i = 0; i < NUM_VOICES; i++) {
     int r = i / 5, c = i % 5;
@@ -480,7 +536,7 @@ static bool presetUsesNoise(const Preset &p) {
 void synthNoteOn(int row, int col, float velocity) {
   int i = row * 5 + col;
   float v = clampf(velocity, 0.0f, 1.0f);
-  const Preset &p = PRESET[currentPreset];
+  const Preset &p = *voicePreset;
   // In continuous mode the strike carries no information: loudness is key
   // POSITION, delivered later through pressure. Baking velocity into the
   // amplitude here is exactly what made a hard strike leave a loud floor
@@ -732,11 +788,70 @@ bool synthVoiceIdle(int row, int col) {
   return !voiceDecaying[row * 5 + col];
 }
 
+// ---- the glissando cue ---------------------------------------------------
+// Non-blocking, because the alternative is not. synthPressureTest blocks for
+// six seconds and gets away with it because it is a diagnostic nobody runs
+// while playing; a mode cue fires with three fingers still on the keys, and
+// stopping the scanner for half a second there would drop the very press that
+// has to be tracked to its release before the mode can arm again.
+//
+// Runs the voices in index order, which is pitch order — MIDI_NOTE ascends
+// left to right and top to bottom (Config.h) — so up and down are just the
+// direction the counter walks.
+static const int      CUE_STEPS     = NUM_VOICES;
+static const uint32_t CUE_STEP_MS   = 18;   // 25 x 18 = 450 ms
+static const int      CUE_HOLD_STEPS = 4;   // release 4 steps behind the head
+
+static void serviceCue() {
+  if (!cueRunning) return;
+  if ((int32_t)(millis() - cueNextMs) < 0) return;
+  cueNextMs += CUE_STEP_MS;
+
+  if (cueStep < CUE_STEPS) {
+    int i = cueUp ? cueStep : (CUE_STEPS - 1 - cueStep);
+    synthNoteOn(i / 5, i % 5, 0.85f);
+  }
+  // Trailing release, so a few notes overlap and the run reads as one gesture
+  // rather than as twenty-five separate ones. Note-off does not silence a
+  // voice, it starts its release, so the tail keeps ringing past this.
+  int rel = cueStep - CUE_HOLD_STEPS;
+  if (rel >= 0 && rel < CUE_STEPS) {
+    int i = cueUp ? rel : (CUE_STEPS - 1 - rel);
+    synthNoteOff(i / 5, i % 5, 0.5f);
+  }
+
+  if (++cueStep >= CUE_STEPS + CUE_HOLD_STEPS) {
+    cueRunning  = false;
+    // Back to whatever preset is selected NOW — which may not be the one that
+    // was selected when the cue started, since presetSelect defers to us.
+    voicePreset = &PRESET[currentPreset];
+    applyPresetBus();
+  }
+}
+
+void synthGlissando(bool up) {
+  // Restarting mid-run is legitimate: the console 'O' command can flip the
+  // mode twice in quick succession. Everything below is idempotent, and the
+  // voices already sounding simply get taken over by the new run.
+  voicePreset = &CUE_PRESET;
+  applyPresetBus();
+  cueUp      = up;
+  cueStep    = 0;
+  cueNextMs  = millis();
+  cueRunning = true;
+}
+
+bool synthCueActive() { return cueRunning; }
+
 void synthUpdate() {
+  // Before the rate gate, so the cue's own 18 ms clock is not quantised by
+  // UPDATE_MS on top of the loop's jitter.
+  serviceCue();
+
   if (millis() - lastUpdateMs < UPDATE_MS) return;
   lastUpdateMs = millis();
 
-  const Preset &p = PRESET[currentPreset];
+  const Preset &p = *voicePreset;
   uint32_t t = millis();
   float mod[NUM_DESTS];
 
@@ -1031,7 +1146,15 @@ void presetList() {
 
 void presetSelect(int index) {
   currentPreset = ((index % PRESET_COUNT) + PRESET_COUNT) % PRESET_COUNT;
-  applyPresetBus();
+  // A cue in progress owns the bus and the voice parameters until it ends, and
+  // it ends by repointing at whatever currentPreset says THEN. Stomping it
+  // here would leave the second half of a glissando in the new patch's voice —
+  // which is exactly the smeared, unrecognisable cue the fixed cue voice
+  // exists to avoid.
+  if (!cueRunning) {
+    voicePreset = &PRESET[currentPreset];
+    applyPresetBus();
+  }
   presetAnnounce();
 }
 
@@ -1040,7 +1163,7 @@ void presetSelect(int index) {
 // the route table. If it does change, the fault is upstream in the scanner.
 // Everything so far has been guesswork for want of exactly this split.
 void synthPressureTest() {
-  const Preset &p = PRESET[currentPreset];
+  const Preset &p = PRESET[currentPreset];   // the SELECTED patch, not the cue
   Serial.print("# pressure sweep on the middle key, preset '");
   Serial.print(p.name); Serial.println("' — scanner bypassed");
   bool routed = false;

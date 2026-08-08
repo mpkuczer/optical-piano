@@ -7,12 +7,27 @@
 #include <Arduino.h>
 #include "Calibration.h"
 #include "Gesture.h"
+#include "Options.h"
 
 void scannerBegin();
 void scannerCalibrate();          // learn resting levels — hands OFF the keys
 void scannerResetCalibration();   // forget learned travel
 void scannerScanOnce();           // one full sweep of all five columns
 void scannerAllNotesOff();        // silence everything (used on preset change)
+
+// ---- options mode ---------------------------------------------------------
+// Hold the bottom three keys for five seconds and the instrument enters a mode
+// where the two end keys change preset and the other twenty-three keep playing
+// normally. See Options.h for the gesture and why it is shaped that way.
+bool scannerOptionsActive();
+
+// Force the mode from the console, taking exactly the path a chord takes —
+// same glissando, same all-notes-off, same re-arm latch.
+void scannerSetOptions(bool on);
+
+// Turn an options event into sound and state. Exposed only so the two callers
+// above share one implementation; nothing else should need it.
+void scannerApplyOptions(OptionsEvent oe);
 
 // Travel learning, on or off. Learning used to run permanently, which meant
 // every fault in note DETECTION became a permanent fault in CALIBRATION: a

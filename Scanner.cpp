@@ -21,6 +21,7 @@
 #include "Config.h"
 #include "Calibration.h"
 #include "Gesture.h"
+#include "Options.h"
 #include "Preset.h"
 #include "Scanner.h"
 #include "Synth.h"
@@ -37,6 +38,15 @@ GestureState gest[5][5];
 uint16_t     rawMeasured[5][5];
 
 static uint32_t nowUs = 0;
+
+// Options mode. The state lives here rather than in the sketch because the
+// positions it needs are produced inside the sweep and nowhere else.
+static OptionsState opts;
+// LAYER 1 output for the whole matrix, one sweep old at worst. Options reads
+// this rather than gest[][].position deliberately — see Options.h.
+static float optPos[OPT_NUM_KEYS];
+
+bool scannerOptionsActive() { return optionsActive(opts); }
 
 // Default ON, so an instrument that is never told about this behaves exactly
 // as it always has. Flip to false here if you would rather boot frozen.
@@ -82,6 +92,32 @@ void scannerBegin() {
   }
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) gestureInit(gest[r][c]);
+  optionsInit(opts);
+  for (int i = 0; i < OPT_NUM_KEYS; i++) optPos[i] = 0.0f;
+}
+
+// A dead key is skipped by the sweep, so it reads 0.0 forever — and if it is
+// one of the four keys the mode depends on, the mode is either unreachable or
+// unusable, with no symptom except a gesture that does nothing. Say so at
+// boot, where somebody is already reading the dead-sensor list.
+static void reportOptionsKeys() {
+  const OptionsConfig &oc = OPTIONS_DEFAULT;
+  uint8_t needed[OPT_CHORD_MAX + 2];
+  int n = 0;
+  for (int i = 0; i < oc.nChord && i < OPT_CHORD_MAX; i++) needed[n++] = oc.chord[i];
+  needed[n++] = oc.navPrev;
+  needed[n++] = oc.navNext;
+
+  for (int i = 0; i < n; i++) {
+    const int k = needed[i];
+    if (!calDead(calKey[k / 5][k % 5], CAL_DEFAULT)) continue;
+    Serial.print("# WARNING: key s"); Serial.print(k + 1);
+    Serial.println(i < oc.nChord
+      ? " is part of the options chord and is DEAD — options mode cannot be"
+        " entered from the keyboard. Use the 'O' command."
+      : " is an options nav key and is DEAD — you will not be able to change"
+        " preset from the keyboard.");
+  }
 }
 
 void scannerCalibrate() {
@@ -119,6 +155,7 @@ void scannerCalibrate() {
   } else {
     Serial.println("# all 25 sensors healthy");
   }
+  reportOptionsKeys();
 }
 
 void scannerResetCalibration() {
@@ -203,7 +240,13 @@ void scannerScanOnce() {
 
     for (int r = 0; r < 5; r++) {
       CalKey &k = calKey[r][c];
-      if (calDead(k, CAL_DEFAULT)) continue;
+      const int idx = r * 5 + c;
+      if (calDead(k, CAL_DEFAULT)) {
+        // Skipped, but its slot must not go stale — a dead key that kept the
+        // last position it ever read would hold the chord down forever.
+        optPos[idx] = 0.0f;
+        continue;
+      }
       GestureState &g = gest[r][c];
 
       // LAYER 1: counts -> position. The flag says only "a note is in
@@ -215,6 +258,15 @@ void scannerScanOnce() {
       // Baseline tracking ignores it entirely and is decided from the signal,
       // so freezing travel here leaves drift compensation running.
       float pos = calUpdate(k, CAL_DEFAULT, v[r], learnTravel && !gestureIdle(g));
+      optPos[idx] = pos;
+
+      // LAYER 2b: the two keys options mode has taken away. Held permanently
+      // idle rather than merely muted, so nothing is left stranded when the
+      // mode ends — no phase mid-descent, and under ART_TRIGGERED no latched
+      // note that the player never asked for and cannot see. It costs the key
+      // its travel learning for the duration, which is right: nobody is
+      // playing a key that is being used as a button.
+      if (optionsReserved(opts, OPTIONS_DEFAULT, idx)) { gestureInit(g); continue; }
 
       // LAYER 2: position -> events + expression. The config comes from the
       // PATCH now, not from one global for the whole instrument — see
@@ -253,4 +305,39 @@ void scannerScanOnce() {
       }
     }
   }
+
+  // LAYER 2b, once the whole matrix has been read. The chord test is about all
+  // twenty-five keys at one instant, which is a question no per-key call can
+  // answer.
+  scannerApplyOptions(optionsUpdate(opts, OPTIONS_DEFAULT, optPos,
+                                    micros() * 0.001f));
+}
+
+// One place where a mode change becomes sound, whether a chord or the console
+// caused it. Two paths here would drift, and the one that drifted would be the
+// console's — the one nobody plays with and everybody debugs with.
+void scannerApplyOptions(OptionsEvent oe) {
+  if (oe.enter || oe.exit) {
+    // Whatever was sounding belonged to the other mode. Under ART_TRIGGERED
+    // this is not a courtesy: a latched note has nothing holding it up and
+    // would otherwise ring straight through the mode change and out the far
+    // side.
+    scannerAllNotesOff();
+    synthGlissando(oe.enter);
+    Serial.println(oe.enter
+      ? "# OPTIONS — the end keys change preset, the rest still play."
+        " Hold the bottom three again to leave."
+      : "# playing");
+    presetAnnounce();
+  }
+  if (oe.presetDelta) {
+    // A preset change silences everything first — see Gesture.cpp on why a
+    // latched note must not outlive the articulation that knows how to end it.
+    scannerAllNotesOff();
+    presetSelect(presetCurrent() + oe.presetDelta);
+  }
+}
+
+void scannerSetOptions(bool on) {
+  scannerApplyOptions(optionsForce(opts, OPTIONS_DEFAULT, on));
 }

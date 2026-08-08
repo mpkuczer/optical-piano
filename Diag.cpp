@@ -61,6 +61,10 @@ void diagServiceTrace() {
   traceNext = now + 60;
 
   Serial.print("# ");
+  // Without this, options mode looks exactly like a broken instrument in the
+  // trace: two keys reporting healthy positions and never starring, because
+  // they are buttons for the moment and buttons make no notes.
+  if (scannerOptionsActive()) Serial.print("[OPT] ");
   for (int r = 0; r < 5; r++)
     for (int c = 0; c < 5; c++) {
       const CalKey &k = calKey[r][c];

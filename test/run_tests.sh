@@ -11,6 +11,7 @@ set -e
 CXX="g++ -std=c++17 -Wall -Wextra -O2 -I.."
 echo "== calibration ==" && $CXX -o t_cal test_calibration.cpp ../Calibration.cpp && ./t_cal
 echo "== pipeline =="    && $CXX -o t_pip test_pipeline.cpp ../Calibration.cpp ../Gesture.cpp && ./t_pip
+echo "== options =="     && $CXX -o t_opt test_options.cpp  ../Options.cpp && ./t_opt
 # echo "== gesture =="     && $CXX -o t_ges test_gesture.cpp   ../Gesture.cpp && ./t_ges
 # echo "== modmatrix =="   && $CXX -o t_mod test_modmatrix.cpp ../ModMatrix.cpp ../Gesture.cpp && ./t_mod
 # echo "== whole sketch ==" && (cd host && sh run_host.sh)

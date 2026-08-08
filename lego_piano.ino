@@ -9,6 +9,7 @@
 //   Config.h        pins, key map, scan timing — this hardware, nothing else
 //   Calibration.*   raw ADC counts  -> normalised position 0..1   [pure]
 //   Gesture.*       position stream -> note events + expression   [pure]
+//   Options.*       position stream -> mode + preset changes      [pure]
 //   ModMatrix.*     sources -> destinations, with curves          [pure]
 //   Preset.h /
 //   Presets.cpp     the patch library
@@ -20,9 +21,24 @@
 // worth the name in this project lived in a state machine that could not be
 // tested; that is why the split exists.
 //
+// OPTIONS MODE, and it is the only control on this instrument that does not
+// need a host. Hold the bottom three keys for five seconds: an upward
+// glissando says you are in it. The leftmost and rightmost keys then step the
+// preset down and up, and the other twenty-three keep playing normally, so you
+// audition a patch by playing it rather than by reading its name over serial.
+// Hold the bottom three again for a downward glissando and you are back.
+//
+// Why a five-second hold rather than a chord: the keybed's whole vocabulary is
+// "press a key", so the gesture that means "stop being an instrument" has to
+// be one no piece of music contains. Three adjacent notes is a cluster someone
+// will play; three adjacent notes held motionless for five seconds is not.
+// See Options.h, which owns both the gesture and the reasoning.
+//
 // SERIAL COMMANDS
 //   0-9  select preset        n / p  next / previous
 //   l    list presets         R      dump the active preset's routes
+//   O    options mode on/off — the same thing the chord does, without the
+//        five-second hold. Same glissando, same cleanup.
 //   o    ALL NOTES OFF. Matters under ART_TRIGGERED, where notes latch: a
 //        latched note has no key holding it and no timeout, so this and a
 //        preset change are the only things besides pressing the key again
@@ -109,6 +125,7 @@ static void handleCommand(char ch) {
     case 'p': selectPresetAndAudition(presetCurrent() - 1); break;
     case 'l': presetList();              break;
     case 'R': presetDumpRoutes();        break;
+    case 'O': scannerSetOptions(!scannerOptionsActive()); break;
     case 'o': scannerAllNotesOff();
               Serial.println("# all notes off");  break;
     case 'b': scannerCalibrate();        break;
@@ -155,6 +172,8 @@ void setup() {
 
   Serial.println("# READY");
   Serial.println("# 0-9 preset  n/p next/prev  l list  R routes  b recal  t trace  w keys  o notes off");
+  Serial.println("# hold the bottom THREE keys for 5s for options: the end keys"
+                 " then change preset, the rest keep playing  ('O' does the same)");
   Serial.println("# L toggles travel learning — play each key to its bottom, then turn it off");
   presetList();
 }

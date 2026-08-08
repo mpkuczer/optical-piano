@@ -45,5 +45,17 @@ uint8_t presetArticulation();   // see Gesture.h
 // threshold is now a property of the patch rather than of the instrument.
 const GestureConfig &presetGesture();
 
+// The mode cue: a run up or down the whole keyboard, in a fixed built-in voice
+// rather than the selected preset. Non-blocking — it steps forward inside
+// synthUpdate, so the scanner keeps running underneath it, which matters
+// because the cue fires while the chord that triggered it is still held.
+//
+// It is deliberately NOT the selected patch. Under `shimmer` or `strings` a
+// 450 ms run would arrive as a slow wash well after the mode had changed, and
+// the one moment this instrument has to be unambiguous is the moment it stops
+// being an instrument. See CUE_PRESET in Synth.cpp.
+void synthGlissando(bool up);
+bool synthCueActive();
+
 void synthPressureTest();   // sweep pressure 0->1->0 with no scanner
 void synthReportLoad();                             // CPU and block usage
