@@ -315,6 +315,56 @@ static const ModRoute R_OBIE[] = {
   { SRC_POSITION, DST_CUTOFF, 14.0f, SRC_CONST, CURVE_LINEAR, 4.0f },
 };
 
+// WHAT COUNTS AS A FAST KEY, and the second per-patch GestureConfig in the
+// library after MEEND_GESTURE. Every field is GESTURE_DEFAULT's except one, so
+// detection — thresholds, persistence, smoothing — is untouched and this patch
+// starts and ends notes exactly like every other continuous row.
+//
+// keyVelFull 4.0 -> 12.0. It is the divisor that turns key speed into
+// SRC_KEYVEL, so it decides what "full scale" means, and 4.0 means a press
+// covering the whole key in 250 ms — which is not a fast press, it is an
+// ordinary one. Everything brisker CLAMPS at 1.0, and squaring 1.0 is still
+// 1.0, so the articulation routes below spent their entire range on strokes
+// nobody would call powerful and the edge arrived on every note.
+//
+// 12.0 puts full scale at a whole-key press in ~83 ms. That is a stab, and it
+// is meant to be: this is the knob for WHAT COUNTS AS FAST, while the detent on
+// the routes themselves is the knob for HOW MUCH OF FAST IS ENOUGH. Tune them
+// in that order — a real stab that no longer bites means this number is too
+// high; an ordinary press that still bites means the detent edge is too low.
+//
+// PER-PATCH AND NOT GLOBAL, which matters more than it looks. vox's consonant
+// (6 semitones) and fmbow's bite (0.16 of FM index) are both tuned against 4.0
+// and both squared, so tripling the divisor globally would leave vox with about
+// one semitone — the two patches in the library that already depend on this
+// value would be quietly gutted to fix a third.
+//
+// Nothing else reads it: gestureKeyVel() is the only caller, and the release
+// scaling has its own hardcoded /4.0 (Gesture.cpp), so this cannot change how
+// notes end.
+static const GestureConfig OBIESW_GESTURE = {
+  /* contOn      */ 0.150f,
+  /* contOff     */ 0.100f,
+  /* velStart    */ 0.060f,
+  /* onPos       */ 0.400f,
+  /* offPos      */ 0.180f,
+  /* velFastMs   */ 2.0f,
+  /* velSlowMs   */ 200.0f,
+  /* velAtFast   */ 1.0f,
+  /* velAtSlow   */ 0.16f,
+  /* settleMs    */ 60.0f,
+  /* stillRate   */ 0.20f,
+  /* velTauMs    */ 30.0f,
+  /* keyVelFull  */ 12.0f,   // THE ONE CHANGE — see above
+  /* heldBand    */ 0.10f,
+  /* minRoom     */ 0.100f,
+  /* smoothTauMs */ 8.0f,
+  /* retreatHyst */ 0.025f,
+  /* maxDescentMs*/ 600.0f,
+  /* onSamples   */ 3,
+  /* offSamples  */ 3,
+};
+
 // OBIE TIMBRE, CONTINUOUS GESTURE — the same operation strbow performs on
 // strings, done to the patch above. Two full detuned saws, the same 5 Hz
 // vibrato, the same drive and reverb; what changes is that nothing is struck.
@@ -371,9 +421,10 @@ static const ModRoute R_OBIE[] = {
 //                         would be silent AND colourless at once.
 //
 // What the finger gets, with the row's fBase 5.0x and res 1.20 underneath.
-// Read the last row as the sharpness: it is what a stabbed key adds on top of
-// the column it lands in, decaying over atkMs (260 ms), and a slid key gets
-// none of it.
+// Read the last row as the sharpness: it is what a STABBED key adds on top of
+// the column it lands in, decaying over atkMs (260 ms). Only a stab — the
+// articulation is behind a detent now, so an ordinary press adds exactly zero
+// and lands on the column as printed. See the two KEYVEL routes.
 //
 //     position   0.15    0.30    0.50    0.75    1.00
 //     gain       0.00    0.08    0.26    0.56    0.97
@@ -420,20 +471,52 @@ static const ModRoute R_OBIESW[] = {
   // WHY IT IS NOT SIMPLY fPeak. An engine sweep happens on every note however
   // the note was begun, which under ART_CONTINUOUS means a finger sliding in
   // gently still gets a bright stab it did not ask for. Through the matrix the
-  // hand decides: keyVelFull is 4.0 units of travel per second (Gesture.cpp), so
-  // any ordinary press saturates SRC_KEYVEL at 1.0 and gets the whole 22, while
-  // a deliberate half-second slide sits near 0.3 and — squared — keeps 9% of it.
-  // One gesture, two articulations, nothing latched.
+  // hand decides.
   //
-  // SQUARED, for R_VOX's reason exactly: keyvel is differentiated from the raw
-  // position, so a still key carries ~0.2 RMS of jitter on this source. Linear
-  // that is 4 semitones of hiss riding the onset window; squared it is 0.9, and
-  // a real press saturates anyway so the gesture loses nothing.
+  // A DETENT, NOT A TAPER, AND THAT IS THE WHOLE TUNING. First version of this
+  // used CURVE_SQUARE against the default keyVelFull of 4.0, and it bit on
+  // everything — not because 22 semitones is too much but because there was no
+  // threshold anywhere in the chain. 4.0 puts full scale at an ORDINARY press
+  // (whole key in 250 ms) and clamps above it, so every stroke from a stab down
+  // to a moderate press arrived at exactly 1.0 and got the entire depth. A power
+  // curve cannot rescue that: it has to discriminate inside a range that is
+  // already pinned at the top.
+  //
+  // So the range is rescaled first — OBIESW_GESTURE raises keyVelFull to 12.0,
+  // see above — and then the curve says how much of that range counts. Edge 0.60
+  // with a span of 0.35 means: below 0.60 of full scale EXACTLY nothing (the
+  // detent's low flat is exact, see ModMatrix.h), full depth above 0.95, and a
+  // smootherstep between. An ordinary press now produces no articulation at all
+  // rather than a little, which is the difference between a patch that has an
+  // articulation and a patch that is simply bright.
+  //
+  // Measured — driving the real Gesture layer at a 500 Hz scan and feeding the
+  // result through modEvaluate, by how long the whole key takes to travel:
+  //
+  //     press       50 ms   80 ms   100 ms   120 ms   140 ms   200 ms   400 ms
+  //     peak keyvel  1.00    0.96     0.80     0.68     0.59     0.42     0.21
+  //     cutoff     +21 st  +18 st   +10 st     +2 st      0        0        0
+  //
+  // THE KNEE IS AT ABOUT 130 ms, which is where peak keyvel crosses the 0.60
+  // edge, and it is the number to move if this still is not right. What it was
+  // before: 50, 100, 150 and 200 ms ALL returned 21..22 semitones, and even a
+  // 400 ms press — slow enough to be visibly deliberate — still got 7.
+  //
+  // Note peak keyvel does not reach 1.00 until about 50 ms, because g.vel is
+  // smoothed over 30 ms (velTauMs) and the note begins only ~8 ms after the key
+  // crosses contOn. That lag is why the edge sits at 0.60 rather than higher:
+  // above about 0.70 even a genuine stab starts to fall short of full depth.
+  //
+  // WHY NOT SQUARED ANY MORE. The square was there for R_VOX's reason — keyvel
+  // is differentiated from raw position, so a still key carries ~0.2 RMS of
+  // jitter and a linear route would put 4 semitones of hiss on the onset window.
+  // The detent does that job strictly better: 0.2 is not near 0.60, so jitter
+  // lands on the exact-zero flat and contributes NOTHING rather than a little.
   //
   // SOURCE AND VIA SWAPPED, the R_OBIE trick again — only the SOURCE takes a
   // curve (modEvaluate multiplies `via` in raw), and the thing that needs
   // shaping here is the key speed, not the window.
-  { SRC_KEYVEL,   DST_CUTOFF, 22.0f, SRC_ATTACK, CURVE_SQUARE },
+  { SRC_KEYVEL,   DST_CUTOFF, 22.0f, SRC_ATTACK, CURVE_DETENT, 0.80f, 0.35f },
   // ...AND THE SAME GESTURE ON THE LEVEL, which is the half that makes it read
   // as an attack rather than as a filter blip. A struck note has a front EDGE:
   // it is briefly louder than the body it settles into. Position alone cannot
@@ -444,20 +527,29 @@ static const ModRoute R_OBIESW[] = {
   // still the finger's, not a velocity layer sneaking back in: stab and hold at
   // half travel and the note speaks at 0.48 and settles to 0.26, which is a
   // piano's shape. Push it past ~0.35 and the settle becomes an audible drop.
-  { SRC_KEYVEL,   DST_AMP,     0.22f, SRC_ATTACK, CURVE_SQUARE },
+  //
+  // SAME DETENT, SAME NUMBERS, and they have to match the route above. These two
+  // are one articulation — a front edge is brightness AND level together — so a
+  // stroke that opens one and not the other would be a filter blip on one side
+  // of the threshold and a thump on the other. Change one edge, change both.
+  { SRC_KEYVEL,   DST_AMP,     0.22f, SRC_ATTACK, CURVE_DETENT, 0.80f, 0.35f },
   // BOTH OF THOSE ROUTES GO NEGATIVE ON THE WAY OUT, and it is worth knowing
   // rather than rediscovering. keyvel is signed — positive descending — and
-  // applyCurve preserves the sign through the square, so a key SNATCHED back
-  // inside the 260 ms window subtracts its 22 semitones and 0.22 of gain
-  // instead of adding them.
+  // applyCurve preserves the sign through the detent exactly as it did through
+  // the square, so a key SNATCHED back inside the 260 ms window subtracts its 22
+  // semitones and 0.22 of gain instead of adding them.
   //
-  // Kept, and the reason it is harmless is arithmetic rather than taste: a key
-  // is only moving upward while its position is FALLING, and the amplitude pair
-  // above is already at zero gain below 0.15 of travel. The negative excursion
-  // is therefore subtracting from a voice on its way into silence — it can pull
-  // the last audible fifth of the travel down a little faster, and it cannot do
-  // anything at all near the bottom. Checked: at the worst case the engine's
-  // own `if (gain < 0) gain = 0` catches it (Synth.cpp).
+  // The detent made this rarer as a side effect, which is the right direction: a
+  // lift now has to clear the same 0.60 edge to do anything at all, so an
+  // ordinary release is exactly zero and only a genuine snatch registers. That
+  // was not the reason for the change, but it is a reason not to special-case it.
+  //
+  // And when it does register it is harmless, by arithmetic rather than taste: a
+  // key is only moving upward while its position is FALLING, and the amplitude
+  // pair above is already at zero gain below 0.15 of travel. The negative
+  // excursion is therefore subtracting from a voice on its way into silence.
+  // Checked: at the worst case the engine's own `if (gain < 0) gain = 0` catches
+  // it (Synth.cpp).
   //
   // Which leaves it saying the same thing the engine already says elsewhere: a
   // fast lift also scales the release by REL_SCALE_FAST (0.35). Snatch the key
@@ -2089,6 +2181,118 @@ static const ModRoute R_TANPURA[] = {
 // triangle's fall off at 12 dB/octave.
 const Preset PRESET[] = {
 
+{ "obiesw",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 1.00,
+    30,  1e9f,  350, 0.42,    5.0,  5.0,  400, 1.20,
+    1.00, 0.00, 0.00,
+    { 5.0f, LFO_SINE, 0.0f, 600.0f }, LFO_OFF, NROUTES(R_OBIESW),
+    0.15, 0.36, 0.00,   0,   0.00 ,   ART_CONTINUOUS, &OBIESW_GESTURE,
+    0.0f, 260.0f },
+
+{ "obie",    WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 1.00,
+    16,  1e9f,  450, 0.42,   15.0,  4.0,  650, 1.50,
+    1.00, 0.00, 0.00,
+    { 5.0f, LFO_SINE, 400.0f, 500.0f }, LFO_OFF, NROUTES(R_OBIE),
+    0.15, 0.36, 0.00,   0,   0.00 ,   ART_STRUCK },
+
+// The continuous obie — see R_OBIESW. Sits directly under the struck one on
+// purpose, the same arrangement as strings/strbow and vox/clarob: 'n' and 'p'
+// flip between the two gestures with the oscillators, the drive and the reverb
+// held identical, which is the only honest way to hear what the articulation
+// is doing.
+//
+// What changed on the ROW, and why each one is forced rather than chosen:
+//
+//   a 16 -> 30            cosmetic. ART_CONTINUOUS forces a 4 ms envelope
+//                         attack in synthNoteOn whatever this says, because
+//                         the patch is assumed to be drawing its own onset;
+//                         30 is what every other continuous row carries.
+//   r 450 -> 350          in family with bowed, and MOSTLY DECORATIVE, which
+//                         is worth stating so nobody tunes it looking for a
+//                         crisper ending. The amplitude pair takes gain to
+//                         exactly zero at 0.15 of travel, and a note does not
+//                         end until the key rises past contOff at 0.100 — so
+//                         by the time the envelope's release begins, the
+//                         modulation has already multiplied the voice by zero.
+//                         The release you actually hear on every continuous
+//                         patch here is the FINGER's, drawn on the way out.
+//                         This number only shows up if contOff or the
+//                         amplitude curve moves.
+//   fPeak 15 -> 5.0       the sweep moves from the envelope to the finger —
+//                         see the KEYVEL route in R_OBIESW, which is that
+//                         sweep with the hand deciding whether it happens.
+//   fBase 4.0 -> 5.0      the resting brightness goes UP, not down, and this
+//                         is the correction that fixed "dull". obie's 4.0 is
+//                         a floor it never stands on: velocity adds 10..14
+//                         semitones to every strike, so its real settled
+//                         brightness is 7.3x..9.2x. With no velocity route
+//                         here the floor has to carry that itself. 5.0x is
+//                         the number at which a comfortable third of the way
+//                         down the key gives obie's own 8.4x, and the bottom
+//                         of the key gives 28x — obie's ATTACK brightness,
+//                         held for as long as the finger stays there.
+//
+//                         (The version before this reasoned from strbow's
+//                         2.6 -> 1.8 and went DOWN to 2.4x. strbow's argument
+//                         is sound for a patch whose struck sibling has no
+//                         velocity->cutoff route to hide brightness in;
+//                         strings does not have one, obie does. The general
+//                         rule is the one at the top of R_OBIESW: convert the
+//                         row TIMES the routes, never the row.)
+//   res 1.50 -> 1.20      the base of a climb rather than a fixed peak; the
+//                         route takes it to 1.60 with the key home.
+//   atkMs 0 -> 260        the length of the articulation, and the field exists
+//                         for exactly this. It is the time constant of
+//                         SRC_ATTACK, so it decides how long the stab's 22
+//                         semitones and 0.22 of gain last. obie's equivalent
+//                         is fTau 650, which on a struck patch reads as a
+//                         bloom; 260 is the same gesture tightened until it
+//                         reads as an edge. Lengthen it toward 500 for
+//                         something that swells into the note instead.
+//   LFO1 delay 400 -> 0   A 400 ms delay exists so a struck note does not
+//                         start already wobbling. Here the vibrato is gated by
+//                         position^3 instead — it does not exist until the
+//                         finger commits — so the delay would only mean a
+//                         player who presses home immediately has to wait for
+//                         expression they have already asked for. The 600 ms
+//                         fade stays: it is what stops the wobble appearing as
+//                         a step when the finger crosses into the top third.
+//
+// ampScale stays at 0.42 even though velocity no longer scales anything. It
+// still needs the headroom, and more of it than before: two full saws at res
+// 1.60 and 28x, plus a 0.22 accent on top, is the loudest this patch ever gets,
+// and that is now a place a finger can simply hold.
+//
+// ONE PLACE THIS RUNS OUT OF ROOM, and it is worth knowing rather than hunting:
+// 28.3x on the top octave is past FILT_MAX_HZ (15 kHz, Synth.cpp), so from
+// about C5 up the bottom of the key stops getting brighter and the filter is
+// simply open. The last inch of travel there is res and vibrato only. obie has
+// the identical ceiling on its attack peak and nobody has ever heard it as a
+// fault, because by then there is nothing left above the cutoff to uncover.
+
+// { "fatpluck",WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0, 13.0, 1.00,
+//      2,   380,  140, 0.42,   24.0,  3.0,  180, 1.60,
+//     1.00, 0.00, 0.00,
+//     LFO_OFF, LFO_OFF, NROUTES(R_PLUCK),
+//     0.10, 0.20, 0.00,   0,   0.00 ,   ART_STRUCK },
+
+// ============================ NEW MOTION ===================================
+// Tremolo — volume wobble. Only possible now the matrix exists.
+// { "tremolo", WAVEFORM_TRIANGLE, WAVEFORM_TRIANGLE,   0,  6.0, 1.00,
+//     20,  1e9f,  300, 0.55,    8.0,  8.0,  400, 0.80,
+//     1.00, 0.00, 0.00,
+//     LFO_OFF, { 5.5f, LFO_SINE, 150.0f, 400.0f }, NROUTES(R_TREMOLO),
+//     0.00, 0.30, 0.00,   0,   0.00 ,   ART_STRUCK },
+
+// Sample-and-hold stepping the filter. Burbling and mechanical.
+// { "stepped", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  8.0, 1.00,
+//      4,  1e9f,  200, 0.45,    6.0,  6.0,  400, 1.80,
+//     1.00, 0.00, 0.00,
+//     LFO_OFF, { 8.0f, LFO_SAMPLE_HOLD, 0.0f, 0.0f }, NROUTES(R_STEPPED),
+//     0.05, 0.30, 0.35, 200,   0.40 ,   ART_STRUCK },
+
+
+
+
 { "reed",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SQUARE,    12,  5.0, 0.55,
     40,  1e9f,  250, 0.65,    1.6,  1.6,  400, 1.60,
     1.00, 0.00, 0.00,
@@ -2361,112 +2565,6 @@ const Preset PRESET[] = {
     LFO_OFF, LFO_OFF, NROUTES(R_DRIFT),
     0.00, 0.32, 0.00,   0,   0.00 ,   ART_STRUCK },
 
-{ "obie",    WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 1.00,
-    16,  1e9f,  450, 0.42,   15.0,  4.0,  650, 1.50,
-    1.00, 0.00, 0.00,
-    { 5.0f, LFO_SINE, 400.0f, 500.0f }, LFO_OFF, NROUTES(R_OBIE),
-    0.15, 0.36, 0.00,   0,   0.00 ,   ART_STRUCK },
-
-// The continuous obie — see R_OBIESW. Sits directly under the struck one on
-// purpose, the same arrangement as strings/strbow and vox/clarob: 'n' and 'p'
-// flip between the two gestures with the oscillators, the drive and the reverb
-// held identical, which is the only honest way to hear what the articulation
-// is doing.
-//
-// What changed on the ROW, and why each one is forced rather than chosen:
-//
-//   a 16 -> 30            cosmetic. ART_CONTINUOUS forces a 4 ms envelope
-//                         attack in synthNoteOn whatever this says, because
-//                         the patch is assumed to be drawing its own onset;
-//                         30 is what every other continuous row carries.
-//   r 450 -> 350          in family with bowed, and MOSTLY DECORATIVE, which
-//                         is worth stating so nobody tunes it looking for a
-//                         crisper ending. The amplitude pair takes gain to
-//                         exactly zero at 0.15 of travel, and a note does not
-//                         end until the key rises past contOff at 0.100 — so
-//                         by the time the envelope's release begins, the
-//                         modulation has already multiplied the voice by zero.
-//                         The release you actually hear on every continuous
-//                         patch here is the FINGER's, drawn on the way out.
-//                         This number only shows up if contOff or the
-//                         amplitude curve moves.
-//   fPeak 15 -> 5.0       the sweep moves from the envelope to the finger —
-//                         see the KEYVEL route in R_OBIESW, which is that
-//                         sweep with the hand deciding whether it happens.
-//   fBase 4.0 -> 5.0      the resting brightness goes UP, not down, and this
-//                         is the correction that fixed "dull". obie's 4.0 is
-//                         a floor it never stands on: velocity adds 10..14
-//                         semitones to every strike, so its real settled
-//                         brightness is 7.3x..9.2x. With no velocity route
-//                         here the floor has to carry that itself. 5.0x is
-//                         the number at which a comfortable third of the way
-//                         down the key gives obie's own 8.4x, and the bottom
-//                         of the key gives 28x — obie's ATTACK brightness,
-//                         held for as long as the finger stays there.
-//
-//                         (The version before this reasoned from strbow's
-//                         2.6 -> 1.8 and went DOWN to 2.4x. strbow's argument
-//                         is sound for a patch whose struck sibling has no
-//                         velocity->cutoff route to hide brightness in;
-//                         strings does not have one, obie does. The general
-//                         rule is the one at the top of R_OBIESW: convert the
-//                         row TIMES the routes, never the row.)
-//   res 1.50 -> 1.20      the base of a climb rather than a fixed peak; the
-//                         route takes it to 1.60 with the key home.
-//   atkMs 0 -> 260        the length of the articulation, and the field exists
-//                         for exactly this. It is the time constant of
-//                         SRC_ATTACK, so it decides how long the stab's 22
-//                         semitones and 0.22 of gain last. obie's equivalent
-//                         is fTau 650, which on a struck patch reads as a
-//                         bloom; 260 is the same gesture tightened until it
-//                         reads as an edge. Lengthen it toward 500 for
-//                         something that swells into the note instead.
-//   LFO1 delay 400 -> 0   A 400 ms delay exists so a struck note does not
-//                         start already wobbling. Here the vibrato is gated by
-//                         position^3 instead — it does not exist until the
-//                         finger commits — so the delay would only mean a
-//                         player who presses home immediately has to wait for
-//                         expression they have already asked for. The 600 ms
-//                         fade stays: it is what stops the wobble appearing as
-//                         a step when the finger crosses into the top third.
-//
-// ampScale stays at 0.42 even though velocity no longer scales anything. It
-// still needs the headroom, and more of it than before: two full saws at res
-// 1.60 and 28x, plus a 0.22 accent on top, is the loudest this patch ever gets,
-// and that is now a place a finger can simply hold.
-//
-// ONE PLACE THIS RUNS OUT OF ROOM, and it is worth knowing rather than hunting:
-// 28.3x on the top octave is past FILT_MAX_HZ (15 kHz, Synth.cpp), so from
-// about C5 up the bottom of the key stops getting brighter and the filter is
-// simply open. The last inch of travel there is res and vibrato only. obie has
-// the identical ceiling on its attack peak and nobody has ever heard it as a
-// fault, because by then there is nothing left above the cutoff to uncover.
-{ "obiesw",  WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  9.0, 1.00,
-    30,  1e9f,  350, 0.42,    5.0,  5.0,  400, 1.20,
-    1.00, 0.00, 0.00,
-    { 5.0f, LFO_SINE, 0.0f, 600.0f }, LFO_OFF, NROUTES(R_OBIESW),
-    0.15, 0.36, 0.00,   0,   0.00 ,   ART_CONTINUOUS, nullptr, 0.0f, 260.0f },
-
-// { "fatpluck",WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0, 13.0, 1.00,
-//      2,   380,  140, 0.42,   24.0,  3.0,  180, 1.60,
-//     1.00, 0.00, 0.00,
-//     LFO_OFF, LFO_OFF, NROUTES(R_PLUCK),
-//     0.10, 0.20, 0.00,   0,   0.00 ,   ART_STRUCK },
-
-// ============================ NEW MOTION ===================================
-// Tremolo — volume wobble. Only possible now the matrix exists.
-// { "tremolo", WAVEFORM_TRIANGLE, WAVEFORM_TRIANGLE,   0,  6.0, 1.00,
-//     20,  1e9f,  300, 0.55,    8.0,  8.0,  400, 0.80,
-//     1.00, 0.00, 0.00,
-//     LFO_OFF, { 5.5f, LFO_SINE, 150.0f, 400.0f }, NROUTES(R_TREMOLO),
-//     0.00, 0.30, 0.00,   0,   0.00 ,   ART_STRUCK },
-
-// Sample-and-hold stepping the filter. Burbling and mechanical.
-// { "stepped", WAVEFORM_BANDLIMIT_SAWTOOTH, WAVEFORM_BANDLIMIT_SAWTOOTH,   0,  8.0, 1.00,
-//      4,  1e9f,  200, 0.45,    6.0,  6.0,  400, 1.80,
-//     1.00, 0.00, 0.00,
-//     LFO_OFF, { 8.0f, LFO_SAMPLE_HOLD, 0.0f, 0.0f }, NROUTES(R_STEPPED),
-//     0.05, 0.30, 0.35, 200,   0.40 ,   ART_STRUCK },
 
 { "shimmer", WAVEFORM_BANDLIMIT_PULSE,    WAVEFORM_BANDLIMIT_PULSE,      0,  5.0, 1.00,
     25,  1e9f,  600, 0.42,    9.0,  7.0,  800, 1.10,
